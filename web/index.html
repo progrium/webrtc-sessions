@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mithril/2.2.3/mithril.min.js" integrity="sha512-veJyRkYTPP9HJBUEq3oqA1uBzxGA+OiiHkcgT4Nm8Ovg9dNKSxf4mxClYVCkujcxIz+reFruwp4OPsXY10U8UA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="./js/session.js"></script>
+    <script src="./js/localmedia.js"></script>
+  </head>
+  <body>
+    <h3>Local</h3>
+    <div id="devices"></div>
+    <video id="local" width="160" height="120" autoplay muted></video>
+    <h3>Remote</h3>
+    <div id="remote"></div>
+    <main></main>
+  </body>
+  <script type="module">
+      
+    const sess = new Session(`ws://${location.host}/session`);
+    sess.onclose = (evt) => console.log("Websocket has closed");
+    sess.onerror = (evt) => console.log("ERROR: " + evt.data);
+    sess.ontrack = ({ streams: [stream], track }) => {
+      if (track.kind === 'audio') {
+        return
+      }
+      console.log("new stream")
+
+      const el = document.createElement(track.kind);
+      el.srcObject = stream;
+      el.autoplay = true;
+      el.controls = true;
+      document.getElementById('remote').appendChild(el)
+
+      stream.onremovetrack = () => {
+        if (el.parentNode) {
+          el.parentNode.removeChild(el)
+        }
+      }
+    };
+
+    const localMedia = new LocalMedia();
+    localMedia.ondevicechange = () => m.redraw();
+    localMedia.onstreamchange = (stream) => {
+      sess.setStream(stream);
+      document.querySelector("#local").srcObject = stream;
+    }
+
+    m.mount(document.querySelector("#devices"), {
+      view: () => m("div", [
+        m("select", {onchange: (e) => localMedia.setVideoSource(e.target.value)}, localMedia.videoDevices.map(device => {
+          return m("option", {value: device.deviceId}, device.label)
+        })),
+        m("select", {onchange: (e) => localMedia.setAudioSource(e.target.value)}, localMedia.audioDevices.map(device => {
+          return m("option", {value: device.deviceId}, device.label)
+        })),
+      ]),
+    });
+
+  </script>
+</html>
