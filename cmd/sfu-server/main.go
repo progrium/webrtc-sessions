@@ -4,9 +4,10 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"webrtc-sfu/sfu"
 
 	"github.com/gorilla/websocket"
+	"github.com/progrium/webrtc-sessions/sfu"
+	"github.com/progrium/webrtc-sessions/web"
 	"tractor.dev/toolkit-go/engine"
 )
 
@@ -37,7 +38,7 @@ func (m *Main) Serve(ctx context.Context) {
 		peer.HandleSignals()
 	})
 
-	http.Handle("/", http.FileServer(http.Dir(".")))
+	http.Handle("/", http.FileServer(http.FS(web.Dir)))
 
 	log.Println("running on http://localhost:8088 ...")
 	log.Fatal(http.ListenAndServe(":8088", nil))
