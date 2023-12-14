@@ -202,3 +202,5 @@ gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 tractor.dev/toolkit-go v0.0.0-20231108030452-f76673e11cd3 h1:RZ6kq7stc3gPEljEhmbgB7uLQd1xRz2JA68a/HA+6p0=
 tractor.dev/toolkit-go v0.0.0-20231108030452-f76673e11cd3/go.mod h1:gteH4mWzJV+Y5zk6/Q6rPuWeOCFHnr55XPTgYEHuzUo=
+tractor.dev/toolkit-go v0.0.0-20231213181448-28ab3c91533b h1:XGO9YLxKZHwliP2lrlHrZsXJmHxfSMgedPTV4sVDOSQ=
+tractor.dev/toolkit-go v0.0.0-20231213181448-28ab3c91533b/go.mod h1:gteH4mWzJV+Y5zk6/Q6rPuWeOCFHnr55XPTgYEHuzUo=

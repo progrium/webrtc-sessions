@@ -8,7 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/pion/rtcp v1.2.13
 	github.com/pion/webrtc/v3 v3.2.23
-	tractor.dev/toolkit-go v0.0.0-20231108030452-f76673e11cd3
+	tractor.dev/toolkit-go v0.0.0-20231213181448-28ab3c91533b
 )
 
 require (
