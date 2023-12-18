@@ -16,31 +16,37 @@
   </body>
   <script type="module">
       
-    const sess = new Session(`ws://${location.host}/session`);
-    sess.onclose = (evt) => console.log("Websocket has closed");
-    sess.onerror = (evt) => console.log("ERROR: " + evt.data);
-    sess.ontrack = ({ streams: [stream], track }) => {
-      if (track.kind === 'audio') {
-        return
-      }
-      console.log("new stream")
-
-      const el = document.createElement(track.kind);
-      el.srcObject = stream;
-      el.autoplay = true;
-      el.controls = true;
-      document.getElementById('remote').appendChild(el)
-
-      stream.onremovetrack = () => {
-        if (el.parentNode) {
-          el.parentNode.removeChild(el)
+    let sess = null;
+    const initSession = () => {
+      sess = new Session(`ws://${location.host}/session`);
+      sess.onclose = (evt) => console.log("Websocket has closed");
+      sess.onerror = (evt) => console.log("ERROR: " + evt.data);
+      sess.ontrack = ({ streams: [stream], track }) => {
+        if (track.kind === 'audio') {
+          return
         }
-      }
+        console.log("new stream")
+
+        const el = document.createElement(track.kind);
+        el.srcObject = stream;
+        el.autoplay = true;
+        el.controls = true;
+        document.getElementById('remote').appendChild(el)
+
+        stream.onremovetrack = () => {
+          if (el.parentNode) {
+            el.parentNode.removeChild(el)
+          }
+        }
+      };
     };
 
     const localMedia = new LocalMedia();
     localMedia.ondevicechange = () => m.redraw();
     localMedia.onstreamchange = (stream) => {
+      if (sess == null) {
+        initSession();
+      }
       sess.setStream(stream);
       document.querySelector("#local").srcObject = stream;
     }
