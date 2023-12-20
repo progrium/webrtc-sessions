@@ -15,7 +15,6 @@
     <main></main>
   </body>
   <script type="module">
-      
     let sess = null;
     const initSession = () => {
       sess = new Session(`ws://${location.host}/session`);
@@ -53,6 +52,7 @@
 
     m.mount(document.querySelector("#devices"), {
       view: () => m("div", [
+        m("button", {onclick: (e) => localMedia.shareScreen()}, [ "Share screen" ]),
         m("select", {onchange: (e) => localMedia.setVideoSource(e.target.value)}, localMedia.videoDevices.map(device => {
           return m("option", {value: device.deviceId}, device.label)
         })),
@@ -61,6 +61,5 @@
         })),
       ]),
     });
-
   </script>
 </html>

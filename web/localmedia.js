@@ -1,5 +1,3 @@
-
-
 class LocalMedia {
   constructor() {
     this.onstreamchange = (stream) => null;
@@ -24,11 +22,24 @@ class LocalMedia {
     this.updateStream();
   }
 
+  shareScreen() {
+    this.setVideoSource('screen');
+    this.updateStream();
+  }
+
   async updateStream() {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {deviceId: this.audioSource ? {exact: this.audioSource} : true},
-      video: {deviceId: this.videoSource ? {exact: this.videoSource} : true}
-    });
+    if (this.videoSource === 'screen') {
+      this.stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: {deviceId: true},
+        video: {deviceId: true},
+        systemAudio: 'include',
+      });
+    } else {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {deviceId: this.audioSource ? {exact: this.audioSource} : true},
+        video: {deviceId: this.videoSource ? {exact: this.videoSource} : true}
+      });
+   }
     if (this.onstreamchange) {
       this.onstreamchange(this.stream);
     }
@@ -42,5 +53,4 @@ class LocalMedia {
       this.ondevicechange();
     }
   }
-
 }
