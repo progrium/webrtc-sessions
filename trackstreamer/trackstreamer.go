@@ -7,7 +7,9 @@ import (
 	"github.com/gopxl/beep"
 	"gopkg.in/hraban/opus.v2"
 
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
 
 const (
@@ -19,11 +21,12 @@ type sampleDecoder interface {
 }
 
 type TrackStreamer struct {
-	track     *webrtc.TrackRemote
-	format    beep.Format
-	dec       sampleDecoder
-	decodeBuf []float32
-	pcm       []float32
+	track        *webrtc.TrackRemote
+	format       beep.Format
+	dec          sampleDecoder
+	decodeBuf    []float32
+	pcm          []float32
+	sampleBuffer *samplebuilder.SampleBuilder
 }
 
 func New(track *webrtc.TrackRemote, format beep.Format) (beep.Streamer, error) {
@@ -32,10 +35,11 @@ func New(track *webrtc.TrackRemote, format beep.Format) (beep.Streamer, error) {
 		return nil, err
 	}
 	return &TrackStreamer{
-		format:    format,
-		decodeBuf: make([]float32, format.NumChannels*format.SampleRate.N(decodeBufDuration)),
-		dec:       dec,
-		track:     track,
+		format:       format,
+		decodeBuf:    make([]float32, format.NumChannels*format.SampleRate.N(decodeBufDuration)),
+		dec:          dec,
+		track:        track,
+		sampleBuffer: samplebuilder.New(20, &codecs.OpusPacket{}, uint32(format.SampleRate.N(time.Second))),
 	}, nil
 }
 
@@ -56,11 +60,16 @@ func (t *TrackStreamer) Stream(samples [][2]float64) (n int, ok bool) {
 }
 
 func (t *TrackStreamer) decodeNextPacket(buf []float32) (int, error) {
-	pkt, _, err := t.track.ReadRTP()
-	if err != nil {
-		return 0, err
+	s := t.sampleBuffer.Pop()
+	for s == nil {
+		pkt, _, err := t.track.ReadRTP()
+		if err != nil {
+			return 0, err
+		}
+		t.sampleBuffer.Push(pkt)
+		s = t.sampleBuffer.Pop()
 	}
-	return t.dec.DecodeFloat32(pkt.Payload, buf)
+	return t.dec.DecodeFloat32(s.Data, buf)
 }
 
 func (t *TrackStreamer) nextPCM() (sample [2]float64, ok bool) {
