@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gopxl/beep"
-	"github.com/gopxl/beep/effects"
 	"github.com/gopxl/beep/speaker"
 	"github.com/pion/webrtc/v3"
 	"github.com/progrium/webrtc-sessions/local"
@@ -56,18 +55,11 @@ func (m *Main) Serve(ctx context.Context) {
 		a, b := beep.Dup(s)
 		speaker.Play(a)
 
-		emit := make(chan *vad.CapturedAudio)
-		input, err := vad.New(vad.Config{
+		detector := vad.New(vad.Config{
 			SampleRate:   format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
-		}, emit)
-		fatal(err)
-		go func() {
-			for out := range emit {
-				log.Printf("got output chunk of %d samples", len(out.PCM))
-			}
-		}()
-		b = effects.Mono(b) // should already be mono, but we can make sure
+		})
+		// b = effects.Mono(b) // should already be mono, but we can make sure
 		var totSamples int
 		for {
 			samples := make([][2]float64, 1000)
@@ -81,9 +73,12 @@ func (m *Main) Serve(ctx context.Context) {
 				pcm[i] = float32(s[0])
 			}
 			totSamples += n
-			input <- &vad.CapturedSample{
+			out := detector.Push(&vad.CapturedSample{
 				PCM:          pcm,
 				EndTimestamp: uint32(format.SampleRate.D(totSamples) / time.Millisecond),
+			})
+			if out != nil {
+				log.Printf("got output chunk of %d samples", len(out.PCM))
 			}
 		}
 	})

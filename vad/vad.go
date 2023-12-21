@@ -27,8 +27,6 @@ type Engine struct {
 	// packetSampleCounts []int
 	windowID string
 
-	audioCh chan<- *CapturedAudio
-
 	isSpeaking bool
 	pendingMs  int
 }
@@ -68,14 +66,13 @@ type Config struct {
 	// pcmWindowSize   = pcmSampleRateMs * sampleRateMs
 }
 
-func NewEngine(config Config, audioCh chan<- *CapturedAudio) *Engine {
+func New(config Config) *Engine {
 	sampleRateMs := config.SampleRate / 1000
 	pcmWindowSize := int(config.SampleWindow.Seconds() * float64(config.SampleRate))
 	return &Engine{
 		sampleRateMs:  sampleRateMs,
 		pcmWindowSize: pcmWindowSize,
 		pcmWindow:     make([]float32, 0, pcmWindowSize),
-		audioCh:       audioCh,
 		isSpeaking:    false,
 		vadGapSamples: sampleRateMs * 700,
 		pendingMs:     0,
@@ -83,27 +80,12 @@ func NewEngine(config Config, audioCh chan<- *CapturedAudio) *Engine {
 
 		// this is an arbitrary number I picked after testing a bit
 		// feel free to play around
-		energyThresh:  0.0005,
+		energyThresh:  0.00005,
 		silenceThresh: 0.015,
 	}
 }
 
-func New(config Config, emit chan<- *CapturedAudio) (chan *CapturedSample, error) {
-	e := NewEngine(config, emit)
-
-	ch := make(chan *CapturedSample, 100)
-	go func() {
-		for s := range ch {
-			e.write(s)
-		}
-	}()
-
-	return ch, nil
-}
-
-// writeVAD only buffers audio if somone is speaking. It will run inference after the audio transitions from
-// speaking to not speaking
-func (e *Engine) write(captured *CapturedSample) {
+func (e *Engine) Push(captured *CapturedSample) *CapturedAudio {
 	pcm := captured.PCM
 	endTimestamp := captured.EndTimestamp
 	// packet := captured.Packet
@@ -150,7 +132,7 @@ func (e *Engine) write(captured *CapturedSample) {
 	}
 
 	if flushFinal {
-		e.audioCh <- &CapturedAudio{
+		cap := &CapturedAudio{
 			ID:    e.windowID,
 			Final: true,
 			PCM:   append([]float32(nil), e.pcmWindow...),
@@ -171,7 +153,7 @@ func (e *Engine) write(captured *CapturedSample) {
 		_ = energy
 		// not speaking do nothing
 		// Logger.Infof("NOT SPEAKING energy=%#v (energyThreshold=%#v) silence=%#v (silenceThreshold=%#v) endTimestamp=%d ", energy, e.energyThresh, silence, e.silenceThresh, endTimestamp)
-		return
+		return cap
 	}
 
 	if isSpeaking && wasSpeaking {
@@ -189,7 +171,7 @@ func (e *Engine) write(captured *CapturedSample) {
 	}
 
 	if flushDraft {
-		e.audioCh <- &CapturedAudio{
+		cap := &CapturedAudio{
 			ID:    e.windowID,
 			Final: false,
 			PCM:   append([]float32(nil), e.pcmWindow...),
@@ -200,7 +182,10 @@ func (e *Engine) write(captured *CapturedSample) {
 			StartTimestamp: uint64(endTimestamp) - uint64(len(e.pcmWindow)/e.sampleRateMs),
 		}
 		e.pendingMs = 0
+		return cap
 	}
+
+	return nil
 }
 
 // NOTE This is a very rough implemntation. We should improve it :D
