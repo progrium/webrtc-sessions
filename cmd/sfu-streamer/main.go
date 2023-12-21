@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gopxl/beep"
+	"github.com/gopxl/beep/effects"
 	"github.com/gopxl/beep/speaker"
 	"github.com/pion/webrtc/v3"
 	"github.com/progrium/webrtc-sessions/local"
@@ -59,7 +60,8 @@ func (m *Main) Serve(ctx context.Context) {
 			SampleRate:   format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
 		})
-		// b = effects.Mono(b) // should already be mono, but we can make sure
+		b = effects.Mono(b) // should already be mono, but we can make sure
+		// b = &effects.Volume{Streamer: b, Base: 2, Volume: 3}
 		var totSamples int
 		for {
 			samples := make([][2]float64, 1000)

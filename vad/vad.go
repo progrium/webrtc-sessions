@@ -80,7 +80,7 @@ func New(config Config) *Engine {
 
 		// this is an arbitrary number I picked after testing a bit
 		// feel free to play around
-		energyThresh:  0.00005,
+		energyThresh:  0.0005,
 		silenceThresh: 0.015,
 	}
 }
