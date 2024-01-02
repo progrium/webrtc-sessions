@@ -14,7 +14,9 @@ require (
 require (
 	github.com/ebitengine/oto/v3 v3.1.0 // indirect
 	github.com/ebitengine/purego v0.5.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.5.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 )
 
 require (

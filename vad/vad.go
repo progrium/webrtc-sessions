@@ -122,12 +122,13 @@ func (e *Engine) Push(captured *CapturedSample) *CapturedAudio {
 
 	wasSpeaking := e.isSpeaking
 	isSpeaking, energy, silence := VAD(e.pcmWindow[vadStartIx:], e.energyThresh, e.silenceThresh)
-	log.Printf("isSpeaking %v energy %v silence %v", isSpeaking, energy, silence)
+	//log.Printf("isSpeaking %v energy %v silence %v", isSpeaking, energy, silence)
 	if isSpeaking {
 		e.isSpeaking = true
 	}
 
 	if len(e.pcmWindow) != 0 && !isSpeaking && wasSpeaking {
+		// log.Printf("FINISHED SPEAKING")
 		flushFinal = true
 	}
 
@@ -157,11 +158,11 @@ func (e *Engine) Push(captured *CapturedSample) *CapturedAudio {
 	}
 
 	if isSpeaking && wasSpeaking {
-		log.Printf("STILL SPEAKING")
+		//log.Printf("STILL SPEAKING")
 	}
 
 	if isSpeaking && !wasSpeaking {
-		log.Printf("JUST STARTED SPEAKING")
+		// log.Printf("STARTED SPEAKING")
 	}
 
 	flushDraft := false
