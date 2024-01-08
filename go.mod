@@ -5,14 +5,19 @@ go 1.21
 toolchain go1.21.1
 
 require (
+	github.com/gopxl/beep v1.3.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/pion/rtcp v1.2.13
 	github.com/pion/webrtc/v3 v3.2.23
+	github.com/rs/xid v1.5.0
 	tractor.dev/toolkit-go v0.0.0-20231213181448-28ab3c91533b
 )
 
+require github.com/pkg/errors v0.9.1 // indirect
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.3.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
@@ -34,4 +39,5 @@ require (
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gotest.tools v2.2.0+incompatible
 )
