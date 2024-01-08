@@ -39,6 +39,11 @@ type Annotation struct {
 	Type       string
 	ID         ID
 	Data       any
+	track      *Track
+}
+
+func (a Annotation) Span() Span {
+	return &filteredSpan{a.Start, a.End, a.track}
 }
 
 type Session struct {
@@ -71,6 +76,7 @@ func (t *Track) annotate(typ string, span Span, data any) Annotation {
 		End:   span.End(),
 		Type:  typ,
 		Data:  data,
+		track: t,
 	}
 	t.annotations = append(t.annotations, a)
 	return a
