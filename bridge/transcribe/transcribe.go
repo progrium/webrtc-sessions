@@ -19,12 +19,39 @@ import (
 
 	"github.com/gopxl/beep"
 	"github.com/progrium/webrtc-sessions/bridge"
+	"github.com/progrium/webrtc-sessions/bridge/audio"
+	"github.com/progrium/webrtc-sessions/bridge/tracks"
 )
+
+// temporary
+type Transcription struct {
+	Words []bridge.Span
+}
 
 type Service struct {
 	pipe io.WriteCloser
 	out  chan []map[string]any
 	mu   sync.Mutex
+}
+
+func (s *Service) Annotated(annot tracks.Annotation) {
+	if annot.Type() != "activity" {
+		return
+	}
+	pcm, err := audio.StreamAll(annot.Span().Audio())
+	if err != nil {
+		log.Println("transcribe:", err)
+		return
+	}
+
+	spans := s.Transcribe(pcm, annot.Span().Track().Format)
+
+	// ignore transcriptions with super low first word probability.
+	if len(spans) > 0 && spans[0].Prob < 0.1 {
+		return
+	}
+
+	annot.Span().Annotate("transcription", Transcription{Words: spans})
 }
 
 func (s *Service) Transcribe(samples []float32, format beep.Format) []bridge.Span {

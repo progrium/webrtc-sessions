@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
@@ -38,7 +37,8 @@ func (m *Main) InitializeCLI(root *cli.Command) {
 		}
 		//buf := beep.NewBuffer(m.format)
 		for _, frame := range m.frames {
-			fmt.Println(frame.Audio.Len())
+			frame.Audio.
+				fmt.Println(frame.Audio.Len())
 			//buf.Append(frame.Audio.Streamer(0, frame.Audio.Len()))
 		}
 		//speaker.Play(buf.Streamer(0, buf.Len()))
