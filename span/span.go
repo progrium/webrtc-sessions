@@ -1,6 +1,8 @@
 package span
 
 import (
+	"fmt"
+	"reflect"
 	"sort"
 	"time"
 
@@ -35,16 +37,42 @@ func newID() ID {
 	return ID(xid.New().String())
 }
 
-type Annotation struct {
+type AnnotationMeta struct {
 	Start, End Timestamp
 	Type       string
 	ID         ID
-	Data       any
-	track      *Track
+}
+
+type Annotation struct {
+	AnnotationMeta
+	Data  any
+	track *Track
 }
 
 func (a Annotation) Span() Span {
 	return &filteredSpan{a.Start, a.End, a.track}
+}
+
+func (a *Annotation) UnmarshalCBOR(data []byte) error {
+	type Annotation2 struct {
+		AnnotationMeta
+		Data cbor.RawMessage
+	}
+	var a2 Annotation2
+	if err := cbor.Unmarshal(data, &a2); err != nil {
+		return err
+	}
+	typ, ok := annotationTypes[a2.Type]
+	if !ok {
+		return fmt.Errorf("unknown annotation type %q", a2.Type)
+	}
+	value := reflect.New(typ)
+	if err := cbor.Unmarshal(a2.Data, value.Interface()); err != nil {
+		return err
+	}
+	a.AnnotationMeta = a2.AnnotationMeta
+	a.Data = reflect.Indirect(value).Interface()
+	return nil
 }
 
 type Session struct {
@@ -94,10 +122,12 @@ func (t *Track) Annotate(typ string, data any) Annotation {
 
 func (t *Track) annotate(typ string, span Span, data any) Annotation {
 	a := Annotation{
-		ID:    newID(),
-		Start: span.Start(),
-		End:   span.End(),
-		Type:  typ,
+		AnnotationMeta: AnnotationMeta{
+			ID:    newID(),
+			Start: span.Start(),
+			End:   span.End(),
+			Type:  typ,
+		},
 		Data:  data,
 		track: t,
 	}
@@ -250,4 +280,9 @@ func (s *filteredSpan) Track() *Track {
 	return s.track
 }
 
-func RegisterAnnotation[T any](typ string) {}
+var annotationTypes = map[string]reflect.Type{}
+
+func RegisterAnnotation[T any](name string) {
+	var t T
+	annotationTypes[name] = reflect.TypeOf(t)
+}
