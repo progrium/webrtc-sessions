@@ -35,7 +35,7 @@ type Service struct {
 }
 
 func (s *Service) Annotated(annot tracks.Annotation) {
-	if annot.Type() != "activity" {
+	if annot.Type != "activity" {
 		return
 	}
 	pcm, err := audio.StreamAll(annot.Span().Audio())
@@ -44,7 +44,7 @@ func (s *Service) Annotated(annot tracks.Annotation) {
 		return
 	}
 
-	spans := s.Transcribe(pcm, annot.Span().Track().Format)
+	spans := s.Transcribe(pcm, annot.Span().Track().AudioFormat())
 
 	// ignore transcriptions with super low first word probability.
 	if len(spans) > 0 && spans[0].Prob < 0.1 {

@@ -16,6 +16,7 @@ import (
 	"github.com/gopxl/beep/effects"
 	"github.com/gopxl/beep/speaker"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"github.com/progrium/webrtc-sessions/bridge"
 	"github.com/progrium/webrtc-sessions/bridge/diarize"
 	"github.com/progrium/webrtc-sessions/bridge/transcribe"
@@ -80,20 +81,22 @@ func (m *Main) Serve(ctx context.Context) {
 		if track.Kind() != webrtc.RTPCodecTypeAudio {
 			return
 		}
-		s, err := trackstreamer.New(track, m.format)
+		ogg, err := oggwriter.New(fmt.Sprintf("track-%s.ogg", track.ID()), uint32(m.format.SampleRate.N(time.Second)), uint16(m.format.NumChannels))
 		fatal(err)
-		_, b := beep.Dup(s)
-		//speaker.Play(a)
+		defer ogg.Close()
+		rtp := trackstreamer.Tee(track, ogg)
+		s, err := trackstreamer.New(rtp, m.format)
+		fatal(err)
 
 		detector := vad.New(vad.Config{
 			SampleRate:   m.format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
 		})
-		b = effects.Mono(b) // should already be mono, but we can make sure
-		// b = &effects.Volume{Streamer: b, Base: 2, Volume: 2}
+		s = effects.Mono(s) // should already be mono, but we can make sure
+		// s = &effects.Volume{Streamer: s, Base: 2, Volume: 2}
 		var totSamples int
 		for {
-			pcm, err := Stream32(b, 1024)
+			pcm, err := Stream32(s, 1024)
 			if err != nil {
 				fatal(err)
 			}
