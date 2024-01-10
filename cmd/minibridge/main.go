@@ -16,6 +16,7 @@ import (
 	"github.com/gopxl/beep/effects"
 	"github.com/gopxl/beep/speaker"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"github.com/progrium/webrtc-sessions/bridge"
 	"github.com/progrium/webrtc-sessions/bridge/diarize"
 	"github.com/progrium/webrtc-sessions/bridge/transcribe"
@@ -80,7 +81,11 @@ func (m *Main) Serve(ctx context.Context) {
 		if track.Kind() != webrtc.RTPCodecTypeAudio {
 			return
 		}
-		s, err := trackstreamer.New(track, m.format)
+		ogg, err := oggwriter.New(fmt.Sprintf("track-%s.ogg", track.ID()), uint32(m.format.SampleRate.N(time.Second)), uint16(m.format.NumChannels))
+		fatal(err)
+		defer ogg.Close()
+		rtp := trackstreamer.Tee(track, ogg)
+		s, err := trackstreamer.New(rtp, m.format)
 		fatal(err)
 
 		detector := vad.New(vad.Config{
