@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/gopxl/beep"
 	"github.com/rs/xid"
 )
@@ -52,9 +53,32 @@ type Session struct {
 	Tracks []*Track
 }
 
+func (s *Session) NewTrack(start Timestamp) *Track {
+	t := &Track{
+		ID:      newID(),
+		Session: s,
+		start:   start,
+	}
+	s.Tracks = append(s.Tracks, t)
+	return t
+}
+
+func (s *Session) UnmarshalCBOR(data []byte) error {
+	type Session2 Session
+	var s2 Session2
+	if err := cbor.Unmarshal(data, &s2); err != nil {
+		return err
+	}
+	*s = Session(s2)
+	for _, t := range s.Tracks {
+		t.Session = s
+	}
+	return nil
+}
+
 type Track struct {
 	ID         ID
-	session    *Session
+	Session    *Session
 	start, end Timestamp
 	format     beep.Format // ?
 	// End should be derived from the last audio sample?
@@ -138,6 +162,36 @@ func (t *Track) Track() *Track {
 
 func (t *Track) AddAudio(samples [][2]float32) {
 	panic("unimplemented")
+}
+
+type trackMarshal struct {
+	ID          ID
+	Annotations []Annotation
+	Start, End  Timestamp
+}
+
+func (t *Track) MarshalCBOR() ([]byte, error) {
+	return cbor.Marshal(trackMarshal{
+		ID:          t.ID,
+		Annotations: t.annotations,
+		Start:       t.start,
+		End:         t.end,
+	})
+}
+
+func (t *Track) UnmarshalCBOR(data []byte) error {
+	var tm trackMarshal
+	if err := cbor.Unmarshal(data, &tm); err != nil {
+		return err
+	}
+	t.ID = tm.ID
+	t.annotations = tm.Annotations
+	for _, a := range t.annotations {
+		a.track = t
+	}
+	t.start = tm.Start
+	t.end = tm.End
+	return nil
 }
 
 type filteredSpan struct {

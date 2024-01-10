@@ -13,7 +13,10 @@ require (
 	tractor.dev/toolkit-go v0.0.0-20231213181448-28ab3c91533b
 )
 
-require github.com/pkg/errors v0.9.1 // indirect
+require (
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
+)
 
 require (
 	github.com/ebitengine/oto/v3 v3.1.0 // indirect
@@ -25,6 +28,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/fxamacker/cbor/v2 v2.5.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.3.1 // indirect
 	github.com/gopxl/beep v1.3.0
