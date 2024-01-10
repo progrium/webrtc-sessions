@@ -82,18 +82,16 @@ func (m *Main) Serve(ctx context.Context) {
 		}
 		s, err := trackstreamer.New(track, m.format)
 		fatal(err)
-		_, b := beep.Dup(s)
-		//speaker.Play(a)
 
 		detector := vad.New(vad.Config{
 			SampleRate:   m.format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
 		})
-		b = effects.Mono(b) // should already be mono, but we can make sure
-		// b = &effects.Volume{Streamer: b, Base: 2, Volume: 2}
+		s = effects.Mono(s) // should already be mono, but we can make sure
+		// s = &effects.Volume{Streamer: s, Base: 2, Volume: 2}
 		var totSamples int
 		for {
-			pcm, err := Stream32(b, 1024)
+			pcm, err := Stream32(s, 1024)
 			if err != nil {
 				fatal(err)
 			}
