@@ -53,11 +53,12 @@ type Session struct {
 	Tracks []*Track
 }
 
-func (s *Session) NewTrack(start Timestamp) *Track {
+func (s *Session) NewTrack(start Timestamp, format beep.Format) *Track {
 	t := &Track{
 		ID:      newID(),
 		Session: s,
 		start:   start,
+		audio:   beep.NewBuffer(format),
 	}
 	s.Tracks = append(s.Tracks, t)
 	return t
@@ -77,12 +78,10 @@ func (s *Session) UnmarshalCBOR(data []byte) error {
 }
 
 type Track struct {
-	ID         ID
-	Session    *Session
-	start, end Timestamp
-	format     beep.Format // ?
-	// End should be derived from the last audio sample?
-	samples [][2]float32 // or beep buffer?
+	ID      ID
+	Session *Session
+	start   Timestamp
+	audio   *beep.Buffer
 	// opus packets
 	annotations []Annotation
 }
@@ -139,8 +138,12 @@ func (t *Track) Annotations(typ string) []Annotation {
 	return out
 }
 
-func (*Track) Audio() beep.Streamer {
-	panic("unimplemented")
+func (t *Track) Audio() beep.Streamer {
+	return t.audio.Streamer(0, t.audio.Len())
+}
+
+func (t *Track) AddAudio(streamer beep.Streamer) {
+	t.audio.Append(streamer)
 }
 
 func (t *Track) Span(from Timestamp, to Timestamp) Span {
@@ -153,21 +156,22 @@ func (t *Track) Start() Timestamp {
 }
 
 func (t *Track) End() Timestamp {
-	return t.end
+	if t.audio == nil {
+		return t.start
+	}
+	dur := t.audio.Format().SampleRate.D(t.audio.Len())
+	return t.start + Timestamp(dur)
 }
 
 func (t *Track) Track() *Track {
 	return t
 }
 
-func (t *Track) AddAudio(samples [][2]float32) {
-	panic("unimplemented")
-}
-
 type trackMarshal struct {
 	ID          ID
 	Annotations []Annotation
-	Start, End  Timestamp
+	Start       Timestamp
+	Format      beep.Format
 }
 
 func (t *Track) MarshalCBOR() ([]byte, error) {
@@ -175,7 +179,7 @@ func (t *Track) MarshalCBOR() ([]byte, error) {
 		ID:          t.ID,
 		Annotations: t.annotations,
 		Start:       t.start,
-		End:         t.end,
+		Format:      t.audio.Format(),
 	})
 }
 
@@ -190,7 +194,7 @@ func (t *Track) UnmarshalCBOR(data []byte) error {
 		a.track = t
 	}
 	t.start = tm.Start
-	t.end = tm.End
+	t.audio = beep.NewBuffer(tm.Format)
 	return nil
 }
 
@@ -222,9 +226,12 @@ func (s *filteredSpan) Annotations(typ string) []Annotation {
 	return out
 }
 
-func (*filteredSpan) Audio() beep.Streamer {
-	// TODO limit audio stream to the start/end times
-	panic("unimplemented")
+func (s *filteredSpan) Audio() beep.Streamer {
+	startOffset := time.Duration(s.start - s.track.start)
+	dur := time.Duration(s.end - s.start)
+	from := s.track.audio.Format().SampleRate.N(startOffset)
+	to := from + s.track.audio.Format().SampleRate.N(dur)
+	return s.track.audio.Streamer(from, to)
 }
 
 func (s *filteredSpan) End() Timestamp {
