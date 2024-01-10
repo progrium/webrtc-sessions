@@ -172,6 +172,10 @@ func (t *Track) Audio() beep.Streamer {
 	return t.audio.Streamer(0, t.audio.Len())
 }
 
+func (t *Track) AudioFormat() beep.Format {
+	return t.audio.Format()
+}
+
 func (t *Track) AddAudio(streamer beep.Streamer) {
 	t.audio.Append(streamer)
 }
