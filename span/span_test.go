@@ -18,6 +18,10 @@ var eqopts = cmp.Options{
 	cmpopts.IgnoreFields(Annotation{}, "track"),
 }
 
+func init() {
+	RegisterAnnotation[string]("text")
+}
+
 func TestTrack(t *testing.T) {
 	rate := beep.SampleRate(48000)
 	track := &Track{
@@ -29,29 +33,63 @@ func TestTrack(t *testing.T) {
 		}),
 	}
 	track.AddAudio(generators.Silence(rate.N(10 * time.Millisecond)))
-	assert.DeepEqual(t, []Annotation(nil), track.Annotations("foo"))
+	assert.DeepEqual(t, []Annotation(nil), track.Annotations("text"))
 
-	track.Annotate("foo", "foo-one")
+	track.Annotate("text", "foo-one")
 	types := track.AnnotationTypes()
-	assert.DeepEqual(t, []string{"foo"}, types)
+	assert.DeepEqual(t, []string{"text"}, types)
 
 	assert.DeepEqual(t,
 		[]Annotation{
-			{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "foo", Data: "foo-one"},
+			{AnnotationMeta: AnnotationMeta{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-one"},
 		},
-		track.Annotations("foo"),
+		track.Annotations("text"),
 		eqopts, cmpopts.IgnoreFields(Track{}, "ID"), cmpopts.IgnoreFields(Annotation{}, "ID"),
 	)
 
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("foo", "foo-two")
+	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("text", "foo-two")
 	assert.DeepEqual(t,
 		[]Annotation{
-			{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "foo", Data: "foo-one"},
-			{Start: Timestamp(5 * time.Millisecond), End: Timestamp(10 * time.Millisecond), Type: "foo", Data: "foo-two"},
+			{AnnotationMeta: AnnotationMeta{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-one"},
+			{AnnotationMeta: AnnotationMeta{Start: Timestamp(5 * time.Millisecond), End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-two"},
 		},
-		track.Annotations("foo"),
+		track.Annotations("text"),
 		eqopts, cmpopts.IgnoreFields(Track{}, "ID"), cmpopts.IgnoreFields(Annotation{}, "ID"),
 	)
+}
+
+func assertCBORRoundTrip[T any](t *testing.T, in T, opts ...cmp.Option) {
+	t.Helper()
+	data, err := cbor.Marshal(in)
+	require.NoError(t, err)
+	var out T
+	err = cbor.Unmarshal(data, &out)
+	require.NoError(t, err)
+	assert.DeepEqual(t, in, out, opts...)
+}
+
+func TestSerializeAnnotationTypes(t *testing.T) {
+	a := Annotation{
+		AnnotationMeta: AnnotationMeta{
+			Start: 0, End: Timestamp(10 * time.Millisecond),
+			Type: "text",
+		},
+		Data: "foo-a",
+	}
+	assertCBORRoundTrip(t, a, eqopts)
+
+	type MyType struct {
+		Foo string
+	}
+	RegisterAnnotation[MyType]("my-type")
+	b := Annotation{
+		AnnotationMeta: AnnotationMeta{
+			Start: 0, End: Timestamp(10 * time.Millisecond),
+			Type: "my-type",
+		},
+		Data: MyType{Foo: "foo-b"},
+	}
+	assertCBORRoundTrip(t, b, eqopts)
 }
 
 func TestSerializeTrack(t *testing.T) {
@@ -63,8 +101,8 @@ func TestSerializeTrack(t *testing.T) {
 			Precision:   2,
 		}),
 	}
-	track.Annotate("foo", "foo-one")
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("foo", "foo-two")
+	track.Annotate("text", "foo-one")
+	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("text", "foo-two")
 
 	out, err := cbor.Marshal(track)
 	require.NoError(t, err)
@@ -82,8 +120,8 @@ func TestSerializeSession(t *testing.T) {
 		NumChannels: 2,
 		Precision:   2,
 	})
-	track.Annotate("foo", "foo-one")
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("foo", "foo-two")
+	track.Annotate("text", "foo-one")
+	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("text", "foo-two")
 
 	out, err := cbor.Marshal(session)
 	require.NoError(t, err)
