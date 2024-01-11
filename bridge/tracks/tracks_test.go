@@ -115,7 +115,7 @@ func TestSerializeTrack(t *testing.T) {
 
 func TestSerializeSession(t *testing.T) {
 	session := &Session{}
-	track := session.NewTrack(0, beep.Format{
+	track := session.NewTrackAt(0, beep.Format{
 		SampleRate:  beep.SampleRate(48000),
 		NumChannels: 2,
 		Precision:   2,
@@ -165,7 +165,7 @@ func TestAudio(t *testing.T) {
 		Precision:   2,
 	}
 	session := &Session{}
-	track := session.NewTrack(0, format)
+	track := session.NewTrackAt(0, format)
 	gen := audioGenerator(t)
 
 	assert.Equal(t, Timestamp(0), track.End(), "End should start at 0")
