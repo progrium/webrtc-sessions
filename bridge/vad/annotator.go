@@ -79,7 +79,7 @@ func New(config Config) *Annotator {
 }
 
 func (a *Annotator) Annotated(annot tracks.Annotation) {
-	if annot.Type() != "audio" {
+	if annot.Type != "audio" {
 		return
 	}
 	pcm, err := audio.StreamAll(annot.Span().Audio())

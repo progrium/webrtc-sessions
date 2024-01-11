@@ -81,7 +81,19 @@ type Session struct {
 	Tracks []*Track
 }
 
-func (s *Session) NewTrack(start Timestamp, format beep.Format) *Track {
+func NewSession() *Session {
+	return &Session{
+		ID:    newID(),
+		Start: time.Now().UTC(),
+	}
+}
+
+func (s *Session) NewTrack(format beep.Format) *Track {
+	start := time.Now().UTC().Sub(s.Start)
+	return s.NewTrackAt(Timestamp(start), format)
+}
+
+func (s *Session) NewTrackAt(start Timestamp, format beep.Format) *Track {
 	t := &Track{
 		ID:      newID(),
 		Session: s,

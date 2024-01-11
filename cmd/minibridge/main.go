@@ -19,6 +19,7 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"github.com/progrium/webrtc-sessions/bridge"
 	"github.com/progrium/webrtc-sessions/bridge/diarize"
+	"github.com/progrium/webrtc-sessions/bridge/tracks"
 	"github.com/progrium/webrtc-sessions/bridge/transcribe"
 	"github.com/progrium/webrtc-sessions/local"
 	"github.com/progrium/webrtc-sessions/sfu"
@@ -76,7 +77,11 @@ func (m *Main) Serve(ctx context.Context) {
 	}
 	fatal(speaker.Init(m.format.SampleRate, m.format.SampleRate.N(time.Second/10)))
 
+	session := tracks.NewSession()
+
 	peer.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		sessTrack := session.NewTrack(m.format)
+
 		log.Printf("got track %s %s", track.ID(), track.Kind())
 		if track.Kind() != webrtc.RTPCodecTypeAudio {
 			return
@@ -87,6 +92,19 @@ func (m *Main) Serve(ctx context.Context) {
 		rtp := trackstreamer.Tee(track, ogg)
 		s, err := trackstreamer.New(rtp, m.format)
 		fatal(err)
+
+		s, s2 := beep.Dup(s)
+		go func() {
+			chunkSize := sessTrack.AudioFormat().SampleRate.N(100 * time.Millisecond)
+			for {
+				// since Track.AddAudio expects finite segments, split it into chunks of
+				// a smaller size we can append incrementally
+				chunk := beep.Take(chunkSize, s2)
+				sessTrack.AddAudio(chunk)
+				fatal(chunk.Err())
+				log.Printf("track %s: %v", sessTrack.ID, time.Duration(sessTrack.End()))
+			}
+		}()
 
 		detector := vad.New(vad.Config{
 			SampleRate:   m.format.SampleRate.N(time.Second),
