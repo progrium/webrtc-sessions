@@ -59,6 +59,7 @@
         m("select", {onchange: (e) => localMedia.setAudioSource(e.target.value)}, localMedia.audioDevices.map(device => {
           return m("option", {value: device.deviceId}, device.label)
         })),
+        m("button", {onclick: (e) => localMedia.toggleAudio()}, [ localMedia.audioEnabled ? "Mute" : "Unmute" ])
       ]),
     });
   </script>
