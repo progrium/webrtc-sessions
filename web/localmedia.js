@@ -8,6 +8,7 @@ class LocalMedia {
     this.audioSource = undefined;
     this.videoSource = undefined;
     this.audioEnabled = true;
+    this.videoEnabled = true;
     this.stream = undefined;
     this.updateStream();
     this.updateDevices();
@@ -26,6 +27,11 @@ class LocalMedia {
 
   toggleAudio() {
     this.audioEnabled = !this.audioEnabled;
+    this.updateStream();
+  }
+
+  toggleVideo() {
+    this.videoEnabled = !this.videoEnabled;
     this.updateStream();
   }
 
@@ -49,6 +55,9 @@ class LocalMedia {
     }
     if (!this.audioEnabled) {
       this.stream.getAudioTracks()[0].enabled = false;
+    }
+    if (!this.videoEnabled) {
+      this.stream.getVideoTracks()[0].enabled = false;
     }
     if (this.onstreamchange) {
       this.onstreamchange(this.stream);

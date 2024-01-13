@@ -41,6 +41,7 @@
     };
 
     const localMedia = new LocalMedia();
+    localMedia.videoEnabled = false;
     localMedia.ondevicechange = () => m.redraw();
     localMedia.onstreamchange = (stream) => {
       if (sess == null) {
