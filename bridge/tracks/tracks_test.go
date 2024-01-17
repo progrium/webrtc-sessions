@@ -14,8 +14,9 @@ import (
 )
 
 var eqopts = cmp.Options{
-	cmp.AllowUnexported(Session{}, Track{}, beep.Buffer{}),
+	cmp.AllowUnexported(Session{}, Track{}, beep.Buffer{}, continuousBuffer{}),
 	cmpopts.IgnoreFields(Annotation{}, "track"),
+	cmpopts.IgnoreFields(continuousBuffer{}, "mu", "cond"),
 }
 
 func init() {
@@ -26,7 +27,7 @@ func TestTrack(t *testing.T) {
 	rate := beep.SampleRate(48000)
 	track := &Track{
 		start: 0,
-		audio: beep.NewBuffer(beep.Format{
+		audio: newContinuousBuffer(beep.Format{
 			SampleRate:  rate,
 			NumChannels: 2,
 			Precision:   2,
@@ -95,7 +96,7 @@ func TestSerializeAnnotationTypes(t *testing.T) {
 func TestSerializeTrack(t *testing.T) {
 	track := &Track{
 		start: 0,
-		audio: beep.NewBuffer(beep.Format{
+		audio: newContinuousBuffer(beep.Format{
 			SampleRate:  48000,
 			NumChannels: 2,
 			Precision:   2,
@@ -168,6 +169,10 @@ func TestAudio(t *testing.T) {
 	track := session.NewTrackAt(0, format)
 	gen := audioGenerator(t)
 
+	// get the stream before we start adding audio to make sure it can capture all
+	// the available audio
+	initStream := track.Audio()
+
 	assert.Equal(t, Timestamp(0), track.End(), "End should start at 0")
 
 	track.AddAudio(beep.Take(format.SampleRate.N(1*time.Second), gen))
@@ -176,12 +181,12 @@ func TestAudio(t *testing.T) {
 	track.AddAudio(beep.Take(format.SampleRate.N(1*time.Second), gen))
 	assert.Equal(t, Timestamp(2*time.Second), track.End(), "End should now be 2s")
 
-	buf := beep.NewBuffer(format)
-	buf.Append(track.Audio())
-	assert.Equal(t, format.SampleRate.N(2*time.Second), buf.Len(), "track.Audio() should contain 2s of data")
-
-	gen2s := beep.Take(format.SampleRate.N(2*time.Second), audioGenerator(t))
-	assertEqualAudio(t, format, gen2s, track.Audio())
+	fullSamples := format.SampleRate.N(2 * time.Second)
+	// taking a Span of the full audio should match the generator
+	assertEqualAudio(t, format, beep.Take(fullSamples, audioGenerator(t)), track.Span(0, track.End()).Audio())
+	// taking the audio from the streamer started before adding audio should also
+	// match
+	assertEqualAudio(t, format, beep.Take(fullSamples, audioGenerator(t)), beep.Take(fullSamples, initStream))
 
 	// pick a start that won't align with the sine wave to make sure we're getting
 	// the right segment

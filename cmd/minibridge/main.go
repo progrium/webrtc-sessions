@@ -93,6 +93,7 @@ func (m *Main) Serve(ctx context.Context) {
 		s, err := trackstreamer.New(rtp, m.format)
 		fatal(err)
 
+		// FIXME the duped streamers still require synchronization when used concurrently
 		s, s2 := beep.Dup(s)
 		go func() {
 			chunkSize := sessTrack.AudioFormat().SampleRate.N(100 * time.Millisecond)
