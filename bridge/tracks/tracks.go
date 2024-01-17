@@ -98,7 +98,7 @@ func (s *Session) NewTrackAt(start Timestamp, format beep.Format) *Track {
 		ID:      newID(),
 		Session: s,
 		start:   start,
-		audio:   beep.NewBuffer(format),
+		audio:   newContinuousBuffer(format),
 	}
 	s.Tracks = append(s.Tracks, t)
 	return t
@@ -121,7 +121,7 @@ type Track struct {
 	ID      ID
 	Session *Session
 	start   Timestamp
-	audio   *beep.Buffer
+	audio   *continuousBuffer
 	// opus packets
 	annotations []Annotation
 }
@@ -181,7 +181,7 @@ func (t *Track) Annotations(typ string) []Annotation {
 }
 
 func (t *Track) Audio() beep.Streamer {
-	return t.audio.Streamer(0, t.audio.Len())
+	return t.audio.StreamerFrom(0)
 }
 
 func (t *Track) AudioFormat() beep.Format {
@@ -240,7 +240,7 @@ func (t *Track) UnmarshalCBOR(data []byte) error {
 		a.track = t
 	}
 	t.start = tm.Start
-	t.audio = beep.NewBuffer(tm.Format)
+	t.audio = newContinuousBuffer(tm.Format)
 	return nil
 }
 
@@ -276,8 +276,8 @@ func (s *filteredSpan) Audio() beep.Streamer {
 	startOffset := time.Duration(s.start - s.track.start)
 	dur := time.Duration(s.end - s.start)
 	from := s.track.audio.Format().SampleRate.N(startOffset)
-	to := from + s.track.audio.Format().SampleRate.N(dur)
-	return s.track.audio.Streamer(from, to)
+	samples := s.track.audio.Format().SampleRate.N(dur)
+	return beep.Take(samples, s.track.audio.StreamerFrom(from))
 }
 
 func (s *filteredSpan) End() Timestamp {

@@ -89,32 +89,31 @@ func (m *Main) Serve(ctx context.Context) {
 		ogg, err := oggwriter.New(fmt.Sprintf("track-%s.ogg", track.ID()), uint32(m.format.SampleRate.N(time.Second)), uint16(m.format.NumChannels))
 		fatal(err)
 		defer ogg.Close()
-		rtp := trackstreamer.Tee(track, ogg)
-		s, err := trackstreamer.New(rtp, m.format)
+		rtpStream, err := trackstreamer.New(trackstreamer.Tee(track, ogg), m.format)
 		fatal(err)
 
-		s, s2 := beep.Dup(s)
 		go func() {
 			chunkSize := sessTrack.AudioFormat().SampleRate.N(100 * time.Millisecond)
 			for {
 				// since Track.AddAudio expects finite segments, split it into chunks of
 				// a smaller size we can append incrementally
-				chunk := beep.Take(chunkSize, s2)
+				chunk := beep.Take(chunkSize, rtpStream)
 				sessTrack.AddAudio(chunk)
 				fatal(chunk.Err())
 				log.Printf("track %s: %v", sessTrack.ID, time.Duration(sessTrack.End()))
 			}
 		}()
 
+		trackAudio := sessTrack.Audio()
 		detector := vad.New(vad.Config{
 			SampleRate:   m.format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
 		})
-		s = effects.Mono(s) // should already be mono, but we can make sure
+		trackAudio = effects.Mono(trackAudio) // should already be mono, but we can make sure
 		// s = &effects.Volume{Streamer: s, Base: 2, Volume: 2}
 		var totSamples int
 		for {
-			pcm, err := Stream32(s, 1024)
+			pcm, err := Stream32(trackAudio, 1024)
 			if err != nil {
 				fatal(err)
 			}
