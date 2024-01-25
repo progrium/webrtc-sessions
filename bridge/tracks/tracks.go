@@ -20,16 +20,13 @@ type Span interface {
 	Start() Timestamp
 	End() Timestamp
 	Audio() beep.Streamer
-	// I guess this returns each annotation found in the span
-	// -- list annotations
-	AnnotationTypes() []string
-	Annotations(typ string) []Annotation
-	// But this would overwrite all the annotations for the span of that type?
-	Annotate(typ string, data any) Annotation
+	EventTypes() []string
+	Events(typ string) []Event
+	RecordEvent(typ string, data any) Event
 }
 
-type Annotator interface {
-	Annotated(Annotation)
+type Handler interface {
+	HandleEvent(Event)
 }
 
 func newID() ID {
@@ -37,41 +34,41 @@ func newID() ID {
 	return ID(xid.New().String())
 }
 
-type AnnotationMeta struct {
+type EventMeta struct {
 	Start, End Timestamp
 	Type       string
 	ID         ID
 }
 
-type Annotation struct {
-	AnnotationMeta
+type Event struct {
+	EventMeta
 	Data  any
 	track *Track
 }
 
-func (a Annotation) Span() Span {
-	return &filteredSpan{a.Start, a.End, a.track}
+func (e Event) Span() Span {
+	return &filteredSpan{e.Start, e.End, e.track}
 }
 
-func (a *Annotation) UnmarshalCBOR(data []byte) error {
-	type Annotation2 struct {
-		AnnotationMeta
+func (e *Event) UnmarshalCBOR(data []byte) error {
+	type EventRawData struct {
+		EventMeta
 		Data cbor.RawMessage
 	}
-	var a2 Annotation2
-	if err := cbor.Unmarshal(data, &a2); err != nil {
+	var eraw EventRawData
+	if err := cbor.Unmarshal(data, &eraw); err != nil {
 		return err
 	}
-	typ, ok := annotationTypes[a2.Type]
+	typ, ok := eventTypes[eraw.Type]
 	if !ok {
-		return fmt.Errorf("unknown annotation type %q", a2.Type)
+		return fmt.Errorf("unknown event type %q", eraw.Type)
 	}
 	value := reflect.New(typ)
-	if err := cbor.Unmarshal(a2.Data, value.Interface()); err != nil {
+	if err := cbor.Unmarshal(eraw.Data, value.Interface()); err != nil {
 		return err
 	}
-	a.AnnotationMeta = a2.AnnotationMeta
-	a.Data = reflect.Indirect(value).Interface()
+	e.EventMeta = eraw.EventMeta
+	e.Data = reflect.Indirect(value).Interface()
 	return nil
 }
 
@@ -123,18 +120,19 @@ type Track struct {
 	start   Timestamp
 	audio   *continuousBuffer
 	// opus packets
-	annotations []Annotation
+	events []Event
 }
 
 var _ Span = (*Track)(nil)
 
-func (t *Track) Annotate(typ string, data any) Annotation {
-	return t.annotate(typ, t, data)
+func (t *Track) RecordEvent(typ string, data any) Event {
+	return t.record(typ, t, data)
 }
 
-func (t *Track) annotate(typ string, span Span, data any) Annotation {
-	a := Annotation{
-		AnnotationMeta: AnnotationMeta{
+func (t *Track) record(typ string, span Span, data any) Event {
+	// FIXME add lock
+	a := Event{
+		EventMeta: EventMeta{
 			ID:    newID(),
 			Start: span.Start(),
 			End:   span.End(),
@@ -143,14 +141,27 @@ func (t *Track) annotate(typ string, span Span, data any) Annotation {
 		Data:  data,
 		track: t,
 	}
-	t.annotations = append(t.annotations, a)
+	t.events = append(t.events, a)
 	return a
 }
 
-func (t *Track) AnnotationTypes() []string {
+func (t *Track) UpdateEvent(evt Event) bool {
+	// this is a copy so it won't affect the caller, but make sure it's pointing
+	// to this track
+	evt.track = t
+	for i, a := range t.events {
+		if a.ID == evt.ID {
+			t.events[i] = evt
+			return true
+		}
+	}
+	return false
+}
+
+func (t *Track) EventTypes() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, a := range t.annotations {
+	for _, a := range t.events {
 		if seen[a.Type] {
 			continue
 		}
@@ -161,9 +172,9 @@ func (t *Track) AnnotationTypes() []string {
 	return out
 }
 
-func (t *Track) Annotations(typ string) []Annotation {
-	var out []Annotation
-	for _, a := range t.annotations {
+func (t *Track) Events(typ string) []Event {
+	var out []Event
+	for _, a := range t.events {
 		if a.Type == typ {
 			out = append(out, a)
 		}
@@ -214,18 +225,18 @@ func (t *Track) Track() *Track {
 }
 
 type trackMarshal struct {
-	ID          ID
-	Annotations []Annotation
-	Start       Timestamp
-	Format      beep.Format
+	ID     ID
+	Events []Event
+	Start  Timestamp
+	Format beep.Format
 }
 
 func (t *Track) MarshalCBOR() ([]byte, error) {
 	return cbor.Marshal(trackMarshal{
-		ID:          t.ID,
-		Annotations: t.annotations,
-		Start:       t.start,
-		Format:      t.audio.Format(),
+		ID:     t.ID,
+		Events: t.events,
+		Start:  t.start,
+		Format: t.audio.Format(),
 	})
 }
 
@@ -235,8 +246,9 @@ func (t *Track) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	t.ID = tm.ID
-	t.annotations = tm.Annotations
-	for _, a := range t.annotations {
+	t.events = tm.Events
+
+	for _, a := range t.events {
 		a.track = t
 	}
 	t.start = tm.Start
@@ -251,22 +263,21 @@ type filteredSpan struct {
 
 var _ Span = (*filteredSpan)(nil)
 
-func (s *filteredSpan) Annotate(typ string, data any) Annotation {
-	return s.Track().annotate(typ, s, data)
+func (s *filteredSpan) RecordEvent(typ string, data any) Event {
+	return s.Track().record(typ, s, data)
 }
 
-func (s *filteredSpan) AnnotationTypes() []string {
+func (s *filteredSpan) EventTypes() []string {
 	// TODO should it return all types for the Track, or only ones found within this span?
-	return s.Track().AnnotationTypes()
+	return s.Track().EventTypes()
 }
 
-func (s *filteredSpan) Annotations(typ string) []Annotation {
-	var out []Annotation
-	for _, a := range s.track.Annotations(typ) {
+func (s *filteredSpan) Events(typ string) []Event {
+	var out []Event
+	for _, a := range s.track.Events(typ) {
 		if a.End < s.start || a.Start > s.end {
 			continue
 		}
-		// TODO clamp the start/end times of this annotation to the span start/end?
 		out = append(out, a)
 	}
 	return out
@@ -296,9 +307,9 @@ func (s *filteredSpan) Track() *Track {
 	return s.track
 }
 
-var annotationTypes = map[string]reflect.Type{}
+var eventTypes = map[string]reflect.Type{}
 
-func RegisterAnnotation[T any](name string) {
-	var t T
-	annotationTypes[name] = reflect.TypeOf(t)
+func RegisterEvent[T any](name string) {
+	// TODO(Go 1.22) can use reflect.TypeFor[T]()
+	eventTypes[name] = reflect.TypeOf((*T)(nil)).Elem()
 }

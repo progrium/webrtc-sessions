@@ -68,7 +68,7 @@ func New(config Config) *Annotator {
 	}
 }
 
-func (a *Annotator) Annotated(annot tracks.Annotation) {
+func (a *Annotator) HandleEvent(annot tracks.Event) {
 	if annot.Type != "audio" {
 		return
 	}
@@ -80,7 +80,7 @@ func (a *Annotator) Annotated(annot tracks.Annotation) {
 	win := a.Window(string(annot.Span().Track().ID))
 	start, ok := win.Push(pcm, annot.End)
 	if ok {
-		annot.Span().Span(start, annot.End).Annotate("activity", nil)
+		annot.Span().Span(start, annot.End).RecordEvent("activity", nil)
 	}
 }
 

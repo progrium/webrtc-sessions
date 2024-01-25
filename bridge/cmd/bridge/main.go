@@ -48,7 +48,7 @@ func main() {
 }
 
 type Main struct {
-	Annotators []tracks.Annotator
+	EventHandlers []tracks.Handler
 
 	sessions map[string]*Session
 	format   beep.Format
@@ -137,9 +137,9 @@ func (m *Main) StartSession(sess *Session) {
 
 			// seems like we should be doing this in session
 			span := sessTrack.Span(newstart, sessTrack.End())
-			annot := span.Annotate("audio", nil)
-			for _, antr := range m.Annotators {
-				antr.Annotated(annot)
+			e := span.RecordEvent("audio", nil)
+			for _, antr := range m.EventHandlers {
+				antr.HandleEvent(e)
 			}
 
 			fatal(chunk.Err())
