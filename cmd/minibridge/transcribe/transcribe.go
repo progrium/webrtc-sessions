@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/gopxl/beep"
-	"github.com/progrium/webrtc-sessions/bridge"
 	"github.com/progrium/webrtc-sessions/bridge/audio"
 	"github.com/progrium/webrtc-sessions/bridge/tracks"
+	"github.com/progrium/webrtc-sessions/cmd/minibridge/bridge"
 )
 
 // temporary
