@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/gopxl/beep"
-	"github.com/progrium/webrtc-sessions/bridge"
+	"github.com/progrium/webrtc-sessions/cmd/minibridge/bridge"
 )
 
 type Service struct {

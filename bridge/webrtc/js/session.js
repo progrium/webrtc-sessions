@@ -1,6 +1,6 @@
 
 
-class Session {
+export class Session {
   constructor(url) {
     this.signals = new WebSocket(url);
     this.peer = new RTCPeerConnection();

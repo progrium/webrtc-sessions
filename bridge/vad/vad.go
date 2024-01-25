@@ -3,6 +3,7 @@ package vad
 import (
 	"log"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/progrium/webrtc-sessions/bridge/audio"
@@ -12,7 +13,7 @@ import (
 
 type Annotator struct {
 	sampleRateMs  int
-	pcmWindowSize int
+	maxWindowSize int
 
 	energyThresh  float32
 	silenceThresh float32
@@ -20,27 +21,18 @@ type Annotator struct {
 	vadGapSamples int
 	maxPendingMs  int
 
-	pcmWindow []float32
-	windowID  string
+	windows map[string]*Window
+	mu      sync.Mutex
+}
+
+type Window struct {
+	vad *Annotator
+
+	pcm     []float32
+	chunkID string
 
 	isSpeaking bool
 	pendingMs  int
-}
-
-type CapturedAudio struct {
-	ID string `json:"id"`
-
-	PCM []float32 `json:"-"`
-
-	Final bool `json:"final"`
-
-	StartTimestamp uint64 `json:"start"`
-	EndTimestamp   uint64 `json:"end"`
-}
-
-type CapturedSample struct {
-	PCM          []float32
-	EndTimestamp uint32
 }
 
 type Config struct {
@@ -64,12 +56,10 @@ func New(config Config) *Annotator {
 	pcmWindowSize := int(config.SampleWindow.Seconds() * float64(config.SampleRate))
 	return &Annotator{
 		sampleRateMs:  sampleRateMs,
-		pcmWindowSize: pcmWindowSize,
-		pcmWindow:     make([]float32, 0, pcmWindowSize),
-		isSpeaking:    false,
+		maxWindowSize: pcmWindowSize,
 		vadGapSamples: sampleRateMs * 700,
-		pendingMs:     0,
 		maxPendingMs:  500,
+		windows:       make(map[string]*Window),
 
 		// this is an arbitrary number I picked after testing a bit
 		// feel free to play around
@@ -87,46 +77,63 @@ func (a *Annotator) Annotated(annot tracks.Annotation) {
 		log.Println("vad:", err)
 		return
 	}
-	start, ok := a.Push(pcm, annot.End)
+	win := a.Window(string(annot.Span().Track().ID))
+	start, ok := win.Push(pcm, annot.End)
 	if ok {
 		annot.Span().Span(start, annot.End).Annotate("activity", nil)
 	}
 }
 
-func (a *Annotator) Push(pcm []float32, end tracks.Timestamp) (start tracks.Timestamp, ok bool) {
-	if a.windowID == "" {
-		a.windowID = xid.New().String()
+func (a *Annotator) Window(name string) *Window {
+	a.mu.Lock()
+	w, ok := a.windows[name]
+	if !ok {
+		w = &Window{
+			vad:        a,
+			pendingMs:  0,
+			pcm:        make([]float32, 0, a.maxWindowSize),
+			isSpeaking: false,
+		}
+		a.windows[name] = w
+	}
+	a.mu.Unlock()
+	return w
+}
+
+func (w *Window) Push(pcm []float32, end tracks.Timestamp) (start tracks.Timestamp, ok bool) {
+	if w.chunkID == "" {
+		w.chunkID = xid.New().String()
 	}
 
-	if len(a.pcmWindow)+len(pcm) > a.pcmWindowSize {
+	if len(w.pcm)+len(pcm) > w.vad.maxWindowSize {
 		// This shouldn't happen hopefully...
-		log.Printf("GOING TO OVERFLOW PCM WINDOW BY %d len(e.pcmWindow)=%d len(pcm)=%d e.pcmWindowSize=%d", len(a.pcmWindow)+len(pcm)-a.pcmWindowSize, len(a.pcmWindow), len(pcm), a.pcmWindowSize)
+		log.Printf("GOING TO OVERFLOW PCM WINDOW BY %d len(e.pcmWindow)=%d len(pcm)=%d e.pcmWindowSize=%d", len(w.pcm)+len(pcm)-w.vad.maxWindowSize, len(w.pcm), len(pcm), w.vad.maxWindowSize)
 	}
 
-	a.pcmWindow = append(a.pcmWindow, pcm...)
-	a.pendingMs += len(pcm) / a.sampleRateMs
+	w.pcm = append(w.pcm, pcm...)
+	w.pendingMs += len(pcm) / w.vad.sampleRateMs
 
 	flushFinal := false
-	if len(a.pcmWindow) >= a.pcmWindowSize {
+	if len(w.pcm) >= w.vad.maxWindowSize {
 		flushFinal = true
 	}
 
 	// only look at the last N samples (at most) of pcmWindow, flush if we see silence there
-	vadGapSamples := a.vadGapSamples
-	vadStartIx := len(a.pcmWindow) - vadGapSamples
+	vadGapSamples := w.vad.vadGapSamples
+	vadStartIx := len(w.pcm) - vadGapSamples
 	if vadStartIx < 0 {
 		vadStartIx = 0
 	}
 
-	wasSpeaking := a.isSpeaking
-	isSpeaking, energy, silence := VAD(a.pcmWindow[vadStartIx:], a.energyThresh, a.silenceThresh)
+	wasSpeaking := w.isSpeaking
+	isSpeaking, energy, silence := VAD(w.pcm[vadStartIx:], w.vad.energyThresh, w.vad.silenceThresh)
 	//log.Printf("isSpeaking %v energy %v silence %v", isSpeaking, energy, silence)
 	if isSpeaking {
-		a.isSpeaking = true
+		w.isSpeaking = true
 	}
 
-	if len(a.pcmWindow) != 0 && !isSpeaking && wasSpeaking {
-		// log.Printf("FINISHED SPEAKING")
+	if len(w.pcm) != 0 && !isSpeaking && wasSpeaking {
+		log.Printf("FINISHED SPEAKING")
 		flushFinal = true
 	}
 
@@ -139,16 +146,16 @@ func (a *Annotator) Push(pcm []float32, end tracks.Timestamp) (start tracks.Time
 		// 	// HACK surely there's a better way to calculate this?
 		// 	StartTimestamp: uint64(endTimestamp) - uint64(len(a.pcmWindow)/a.sampleRateMs),
 		// }
-		a.windowID = ""
-		a.isSpeaking = false
-		a.pcmWindow = a.pcmWindow[:0]
-		a.pendingMs = 0
+		w.chunkID = ""
+		w.isSpeaking = false
+		w.pcm = w.pcm[:0]
+		w.pendingMs = 0
 
 		_ = silence
 		_ = energy
 		// not speaking do nothing
 		// Logger.Infof("NOT SPEAKING energy=%#v (energyThreshold=%#v) silence=%#v (silenceThreshold=%#v) endTimestamp=%d ", energy, e.energyThresh, silence, e.silenceThresh, endTimestamp)
-		return end - tracks.Timestamp(len(a.pcmWindow)/a.sampleRateMs), true
+		return end - tracks.Timestamp(len(w.pcm)/w.vad.sampleRateMs), true
 	}
 
 	if isSpeaking && wasSpeaking {
@@ -156,12 +163,12 @@ func (a *Annotator) Push(pcm []float32, end tracks.Timestamp) (start tracks.Time
 	}
 
 	if isSpeaking && !wasSpeaking {
-		// log.Printf("STARTED SPEAKING")
+		log.Printf("STARTED SPEAKING")
 	}
 
 	flushDraft := false
 
-	if a.pendingMs >= a.maxPendingMs && isSpeaking {
+	if w.pendingMs >= w.vad.maxPendingMs && isSpeaking {
 		flushDraft = true
 	}
 
@@ -174,8 +181,8 @@ func (a *Annotator) Push(pcm []float32, end tracks.Timestamp) (start tracks.Time
 		// 	// HACK surely there's a better way to calculate this?
 		// 	StartTimestamp: uint64(endTimestamp) - uint64(len(a.pcmWindow)/a.sampleRateMs),
 		// }
-		a.pendingMs = 0
-		return end - tracks.Timestamp(len(a.pcmWindow)/a.sampleRateMs), false
+		w.pendingMs = 0
+		return end - tracks.Timestamp(len(w.pcm)/w.vad.sampleRateMs), false
 	}
 
 	return 0, false
