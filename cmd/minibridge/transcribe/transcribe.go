@@ -34,7 +34,7 @@ type Service struct {
 	mu   sync.Mutex
 }
 
-func (s *Service) Annotated(annot tracks.Annotation) {
+func (s *Service) HandleEvent(annot tracks.Event) {
 	if annot.Type != "activity" {
 		return
 	}
@@ -51,7 +51,7 @@ func (s *Service) Annotated(annot tracks.Annotation) {
 		return
 	}
 
-	annot.Span().Annotate("transcription", Transcription{Words: spans})
+	annot.Span().RecordEvent("transcription", Transcription{Words: spans})
 }
 
 func (s *Service) Transcribe(samples []float32, format beep.Format) []bridge.Span {

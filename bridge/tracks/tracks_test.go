@@ -15,12 +15,12 @@ import (
 
 var eqopts = cmp.Options{
 	cmp.AllowUnexported(Session{}, Track{}, beep.Buffer{}, continuousBuffer{}),
-	cmpopts.IgnoreFields(Annotation{}, "track"),
+	cmpopts.IgnoreFields(Event{}, "track"),
 	cmpopts.IgnoreFields(continuousBuffer{}, "mu", "cond"),
 }
 
 func init() {
-	RegisterAnnotation[string]("text")
+	RegisterEvent[string]("text")
 }
 
 func TestTrack(t *testing.T) {
@@ -34,28 +34,28 @@ func TestTrack(t *testing.T) {
 		}),
 	}
 	track.AddAudio(generators.Silence(rate.N(10 * time.Millisecond)))
-	assert.DeepEqual(t, []Annotation(nil), track.Annotations("text"))
+	assert.DeepEqual(t, []Event(nil), track.Events("text"))
 
-	track.Annotate("text", "foo-one")
-	types := track.AnnotationTypes()
+	track.RecordEvent("text", "foo-one")
+	types := track.EventTypes()
 	assert.DeepEqual(t, []string{"text"}, types)
 
 	assert.DeepEqual(t,
-		[]Annotation{
-			{AnnotationMeta: AnnotationMeta{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-one"},
+		[]Event{
+			{EventMeta: EventMeta{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-one"},
 		},
-		track.Annotations("text"),
-		eqopts, cmpopts.IgnoreFields(Track{}, "ID"), cmpopts.IgnoreFields(Annotation{}, "ID"),
+		track.Events("text"),
+		eqopts, cmpopts.IgnoreFields(Track{}, "ID"), cmpopts.IgnoreFields(Event{}, "ID"),
 	)
 
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("text", "foo-two")
+	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).RecordEvent("text", "foo-two")
 	assert.DeepEqual(t,
-		[]Annotation{
-			{AnnotationMeta: AnnotationMeta{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-one"},
-			{AnnotationMeta: AnnotationMeta{Start: Timestamp(5 * time.Millisecond), End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-two"},
+		[]Event{
+			{EventMeta: EventMeta{Start: 0, End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-one"},
+			{EventMeta: EventMeta{Start: Timestamp(5 * time.Millisecond), End: Timestamp(10 * time.Millisecond), Type: "text"}, Data: "foo-two"},
 		},
-		track.Annotations("text"),
-		eqopts, cmpopts.IgnoreFields(Track{}, "ID"), cmpopts.IgnoreFields(Annotation{}, "ID"),
+		track.Events("text"),
+		eqopts, cmpopts.IgnoreFields(Track{}, "ID"), cmpopts.IgnoreFields(Event{}, "ID"),
 	)
 }
 
@@ -69,9 +69,9 @@ func assertCBORRoundTrip[T any](t *testing.T, in T, opts ...cmp.Option) {
 	assert.DeepEqual(t, in, out, opts...)
 }
 
-func TestSerializeAnnotationTypes(t *testing.T) {
-	a := Annotation{
-		AnnotationMeta: AnnotationMeta{
+func TestSerializeEventTypes(t *testing.T) {
+	a := Event{
+		EventMeta: EventMeta{
 			Start: 0, End: Timestamp(10 * time.Millisecond),
 			Type: "text",
 		},
@@ -82,9 +82,9 @@ func TestSerializeAnnotationTypes(t *testing.T) {
 	type MyType struct {
 		Foo string
 	}
-	RegisterAnnotation[MyType]("my-type")
-	b := Annotation{
-		AnnotationMeta: AnnotationMeta{
+	RegisterEvent[MyType]("my-type")
+	b := Event{
+		EventMeta: EventMeta{
 			Start: 0, End: Timestamp(10 * time.Millisecond),
 			Type: "my-type",
 		},
@@ -102,8 +102,8 @@ func TestSerializeTrack(t *testing.T) {
 			Precision:   2,
 		}),
 	}
-	track.Annotate("text", "foo-one")
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("text", "foo-two")
+	track.RecordEvent("text", "foo-one")
+	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).RecordEvent("text", "foo-two")
 
 	out, err := cbor.Marshal(track)
 	require.NoError(t, err)
@@ -121,8 +121,8 @@ func TestSerializeSession(t *testing.T) {
 		NumChannels: 2,
 		Precision:   2,
 	})
-	track.Annotate("text", "foo-one")
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).Annotate("text", "foo-two")
+	track.RecordEvent("text", "foo-one")
+	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).RecordEvent("text", "foo-two")
 
 	out, err := cbor.Marshal(session)
 	require.NoError(t, err)
@@ -197,4 +197,31 @@ func TestAudio(t *testing.T) {
 	discardSamples(t, format.SampleRate.N(midStart), genMid)
 	genMid = beep.Take(format.SampleRate.N(midEnd-midStart), genMid)
 	assertEqualAudio(t, format, genMid, middle.Audio())
+}
+
+func TestUpdateEvent(t *testing.T) {
+	format := beep.Format{
+		SampleRate:  beep.SampleRate(1000),
+		NumChannels: 1,
+		Precision:   2,
+	}
+	session := &Session{}
+	track := session.NewTrackAt(0, format)
+
+	eventData := func(typ string) (data []any) {
+		for _, e := range track.Events(typ) {
+			data = append(data, e.Data)
+		}
+		return
+	}
+
+	e1 := track.RecordEvent("text", "original")
+	assert.DeepEqual(t, []any{"original"}, eventData("text"))
+
+	e1.Data = "modified"
+	// modifying the returned event should not affect the stored event directly
+	assert.DeepEqual(t, []any{"original"}, eventData("text"))
+
+	assert.Assert(t, track.UpdateEvent(e1))
+	assert.DeepEqual(t, []any{"modified"}, eventData("text"))
 }
