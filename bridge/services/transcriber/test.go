@@ -17,7 +17,7 @@ func fatal(err error) {
 }
 
 func main() {
-	url := "http://localhost:8000/v1/transcribe"
+	url := "http://localhost:8090/v1/transcribe"
 	audio, err := os.ReadFile("test.ogg")
 	fatal(err)
 	request := &TranscriptionRequest{

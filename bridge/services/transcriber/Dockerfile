@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the source code to the container
 COPY . /app
 
+# Cache the model fetch that would otherwise happen on boot
+RUN python3 app.py
+
 # Expose the port on which the application will run (default is 8000)
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1

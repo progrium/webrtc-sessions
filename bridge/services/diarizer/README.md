@@ -1,3 +1,5 @@
+# Work in progress
+
 ### Build container
 ```
 docker build -t transcriber .
