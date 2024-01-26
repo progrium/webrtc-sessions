@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
@@ -30,7 +31,6 @@ type Handler interface {
 }
 
 func newID() ID {
-	// FIXME
 	return ID(xid.New().String())
 }
 
@@ -73,9 +73,10 @@ func (e *Event) UnmarshalCBOR(data []byte) error {
 }
 
 type Session struct {
+	EventEmitter
 	ID     ID
 	Start  time.Time
-	Tracks []*Track
+	tracks sync.Map
 }
 
 func NewSession() *Session {
@@ -97,19 +98,55 @@ func (s *Session) NewTrackAt(start Timestamp, format beep.Format) *Track {
 		start:   start,
 		audio:   newContinuousBuffer(format),
 	}
-	s.Tracks = append(s.Tracks, t)
+	s.tracks.Store(t.ID, t)
 	return t
 }
 
+func (s *Session) Tracks() []*Track {
+	var out []*Track
+	s.tracks.Range(func(key, value any) bool {
+		out = append(out, value.(*Track))
+		return true
+	})
+	return out
+}
+
+type sessionSnapshot struct {
+	ID     ID
+	Start  time.Time
+	Tracks []*trackSnapshot
+}
+
+func (s *Session) snapshot() *sessionSnapshot {
+	snap := &sessionSnapshot{
+		ID:    s.ID,
+		Start: s.Start,
+	}
+	s.tracks.Range(func(key, value any) bool {
+		snap.Tracks = append(snap.Tracks, value.(*Track).snapshot())
+		return true
+	})
+	sort.Slice(snap.Tracks, func(i, j int) bool {
+		return snap.Tracks[i].Start < snap.Tracks[j].Start
+	})
+	return snap
+}
+
+func (s *Session) MarshalCBOR() ([]byte, error) {
+	return cbor.Marshal(s.snapshot())
+}
+
 func (s *Session) UnmarshalCBOR(data []byte) error {
-	type Session2 Session
-	var s2 Session2
+	var s2 sessionSnapshot
 	if err := cbor.Unmarshal(data, &s2); err != nil {
 		return err
 	}
-	*s = Session(s2)
-	for _, t := range s.Tracks {
+	s.ID = s2.ID
+	s.Start = s2.Start
+	for _, ts := range s2.Tracks {
+		t := trackFromSnapshot(ts)
 		t.Session = s
+		s.tracks.Store(t.ID, t)
 	}
 	return nil
 }
@@ -119,8 +156,7 @@ type Track struct {
 	Session *Session
 	start   Timestamp
 	audio   *continuousBuffer
-	// opus packets
-	events []Event
+	events  sync.Map
 }
 
 var _ Span = (*Track)(nil)
@@ -130,8 +166,7 @@ func (t *Track) RecordEvent(typ string, data any) Event {
 }
 
 func (t *Track) record(typ string, span Span, data any) Event {
-	// FIXME add lock
-	a := Event{
+	e := Event{
 		EventMeta: EventMeta{
 			ID:    newID(),
 			Start: span.Start(),
@@ -141,44 +176,47 @@ func (t *Track) record(typ string, span Span, data any) Event {
 		Data:  data,
 		track: t,
 	}
-	t.events = append(t.events, a)
-	return a
+	t.events.Store(e.ID, e)
+	return e
 }
 
 func (t *Track) UpdateEvent(evt Event) bool {
 	// this is a copy so it won't affect the caller, but make sure it's pointing
 	// to this track
 	evt.track = t
-	for i, a := range t.events {
-		if a.ID == evt.ID {
-			t.events[i] = evt
-			return true
-		}
-	}
-	return false
+	_, loaded := t.events.Swap(evt.ID, evt)
+	return loaded
 }
 
 func (t *Track) EventTypes() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, a := range t.events {
-		if seen[a.Type] {
-			continue
+	t.rangeEvents(func(e Event) bool {
+		if seen[e.Type] {
+			return true
 		}
-		seen[a.Type] = true
-		out = append(out, a.Type)
-	}
+		seen[e.Type] = true
+		out = append(out, e.Type)
+		return true
+	})
 	sort.Strings(out)
 	return out
 }
 
+func (t *Track) rangeEvents(f func(evt Event) bool) {
+	t.events.Range(func(key, value any) bool {
+		return f(value.(Event))
+	})
+}
+
 func (t *Track) Events(typ string) []Event {
 	var out []Event
-	for _, a := range t.events {
-		if a.Type == typ {
-			out = append(out, a)
+	t.rangeEvents(func(e Event) bool {
+		if e.Type == typ {
+			out = append(out, e)
 		}
-	}
+		return true
+	})
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Start < out[j].Start {
 			return true
@@ -224,36 +262,47 @@ func (t *Track) Track() *Track {
 	return t
 }
 
-type trackMarshal struct {
+type trackSnapshot struct {
 	ID     ID
 	Events []Event
 	Start  Timestamp
 	Format beep.Format
 }
 
-func (t *Track) MarshalCBOR() ([]byte, error) {
-	return cbor.Marshal(trackMarshal{
+func (t *Track) snapshot() *trackSnapshot {
+	data := trackSnapshot{
 		ID:     t.ID,
-		Events: t.events,
 		Start:  t.start,
 		Format: t.audio.Format(),
+	}
+	t.rangeEvents(func(e Event) bool {
+		data.Events = append(data.Events, e)
+		return true
 	})
+	sort.Slice(data.Events, func(i, j int) bool {
+		ei, ej := data.Events[i], data.Events[j]
+		if ei.Start < ej.Start {
+			return true
+		}
+		if ei.Start > ej.Start {
+			return false
+		}
+		return ei.End < ej.End
+	})
+	return &data
 }
 
-func (t *Track) UnmarshalCBOR(data []byte) error {
-	var tm trackMarshal
-	if err := cbor.Unmarshal(data, &tm); err != nil {
-		return err
+func trackFromSnapshot(tm *trackSnapshot) *Track {
+	t := &Track{
+		ID:    tm.ID,
+		start: tm.Start,
+		audio: newContinuousBuffer(tm.Format),
 	}
-	t.ID = tm.ID
-	t.events = tm.Events
-
-	for _, a := range t.events {
-		a.track = t
+	for _, e := range tm.Events {
+		e.track = t
+		t.events.Store(e.ID, e)
 	}
-	t.start = tm.Start
-	t.audio = newContinuousBuffer(tm.Format)
-	return nil
+	return t
 }
 
 type filteredSpan struct {
