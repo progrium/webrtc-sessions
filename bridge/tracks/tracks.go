@@ -177,6 +177,7 @@ func (t *Track) record(typ string, span Span, data any) Event {
 		track: t,
 	}
 	t.events.Store(e.ID, e)
+	t.Session.Emit(e)
 	return e
 }
 
@@ -185,6 +186,8 @@ func (t *Track) UpdateEvent(evt Event) bool {
 	// to this track
 	evt.track = t
 	_, loaded := t.events.Swap(evt.ID, evt)
+	// XXX if event was not there before, should we still add it, or skip?
+	t.Session.Emit(evt)
 	return loaded
 }
 
@@ -238,7 +241,18 @@ func (t *Track) AudioFormat() beep.Format {
 }
 
 func (t *Track) AddAudio(streamer beep.Streamer) {
+	before := t.End()
 	t.audio.Append(streamer)
+	after := t.End()
+	t.Session.Emit(Event{
+		EventMeta: EventMeta{
+			// should this still generate an ID even if it's not permanent?
+			Start: before,
+			End:   after,
+			Type:  "audio",
+		},
+		track: t,
+	})
 }
 
 func (t *Track) Span(from Timestamp, to Timestamp) Span {

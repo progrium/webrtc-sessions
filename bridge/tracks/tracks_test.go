@@ -22,15 +22,13 @@ func init() {
 }
 
 func TestTrack(t *testing.T) {
+	session := &Session{}
 	rate := beep.SampleRate(48000)
-	track := &Track{
-		start: 0,
-		audio: newContinuousBuffer(beep.Format{
-			SampleRate:  rate,
-			NumChannels: 2,
-			Precision:   2,
-		}),
-	}
+	track := session.NewTrackAt(0, beep.Format{
+		SampleRate:  rate,
+		NumChannels: 2,
+		Precision:   2,
+	})
 	track.AddAudio(generators.Silence(rate.N(10 * time.Millisecond)))
 	assert.DeepEqual(t, []Event(nil), track.Events("text"))
 
