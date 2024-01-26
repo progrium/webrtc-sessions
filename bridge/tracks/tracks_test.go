@@ -14,9 +14,7 @@ import (
 )
 
 var eqopts = cmp.Options{
-	cmp.AllowUnexported(Session{}, Track{}, beep.Buffer{}, continuousBuffer{}),
 	cmpopts.IgnoreFields(Event{}, "track"),
-	cmpopts.IgnoreFields(continuousBuffer{}, "mu", "cond"),
 }
 
 func init() {
@@ -24,15 +22,13 @@ func init() {
 }
 
 func TestTrack(t *testing.T) {
+	session := &Session{}
 	rate := beep.SampleRate(48000)
-	track := &Track{
-		start: 0,
-		audio: newContinuousBuffer(beep.Format{
-			SampleRate:  rate,
-			NumChannels: 2,
-			Precision:   2,
-		}),
-	}
+	track := session.NewTrackAt(0, beep.Format{
+		SampleRate:  rate,
+		NumChannels: 2,
+		Precision:   2,
+	})
 	track.AddAudio(generators.Silence(rate.N(10 * time.Millisecond)))
 	assert.DeepEqual(t, []Event(nil), track.Events("text"))
 
@@ -93,27 +89,6 @@ func TestSerializeEventTypes(t *testing.T) {
 	assertCBORRoundTrip(t, b, eqopts)
 }
 
-func TestSerializeTrack(t *testing.T) {
-	track := &Track{
-		start: 0,
-		audio: newContinuousBuffer(beep.Format{
-			SampleRate:  48000,
-			NumChannels: 2,
-			Precision:   2,
-		}),
-	}
-	track.RecordEvent("text", "foo-one")
-	track.Span(Timestamp(5*time.Millisecond), Timestamp(10*time.Millisecond)).RecordEvent("text", "foo-two")
-
-	out, err := cbor.Marshal(track)
-	require.NoError(t, err)
-
-	var track2 Track
-	require.NoError(t, cbor.Unmarshal(out, &track2))
-
-	assert.DeepEqual(t, track, &track2, eqopts)
-}
-
 func TestSerializeSession(t *testing.T) {
 	session := &Session{}
 	track := session.NewTrackAt(0, beep.Format{
@@ -130,7 +105,7 @@ func TestSerializeSession(t *testing.T) {
 	var session2 Session
 	require.NoError(t, cbor.Unmarshal(out, &session2))
 
-	assert.DeepEqual(t, session, &session2, eqopts)
+	assert.DeepEqual(t, session.snapshot(), session2.snapshot(), eqopts)
 }
 
 func audioGenerator(t *testing.T) beep.Streamer {

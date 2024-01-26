@@ -44,7 +44,14 @@ func main() {
 			SampleRate:   format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
 		}),
+		eventLogger{},
 	)
+}
+
+type eventLogger struct{}
+
+func (eventLogger) HandleEvent(e tracks.Event) {
+	log.Printf("event: %s %s %s", e.Type, e.ID, time.Duration(e.Start))
 }
 
 type Main struct {
@@ -132,16 +139,7 @@ func (m *Main) StartSession(sess *Session) {
 			// since Track.AddAudio expects finite segments, split it into chunks of
 			// a smaller size we can append incrementally
 			chunk := beep.Take(chunkSize, s)
-			newstart := sessTrack.End()
 			sessTrack.AddAudio(chunk)
-
-			// seems like we should be doing this in session
-			span := sessTrack.Span(newstart, sessTrack.End())
-			e := span.RecordEvent("audio", nil)
-			for _, antr := range m.EventHandlers {
-				antr.HandleEvent(e)
-			}
-
 			fatal(chunk.Err())
 			log.Printf("track %s: %v", sessTrack.ID, time.Duration(sessTrack.End()))
 		}
@@ -161,6 +159,9 @@ func (m *Main) Serve(ctx context.Context) {
 		sess := &Session{
 			sfu:     sfu.NewSession(),
 			Session: tracks.NewSession(),
+		}
+		for _, h := range m.EventHandlers {
+			sess.Listen(h)
 		}
 		m.sessions[string(sess.ID)] = sess
 		m.mu.Unlock()
