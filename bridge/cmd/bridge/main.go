@@ -154,22 +154,13 @@ func (m *Main) StartSession(sess *Session) {
 	sess.peer.HandleSignals()
 }
 
-func sessionUpdateHandler(ctx context.Context, sess *Session, f func(*Session)) tracks.Handler {
-	// Debounces updates so that the callback is only called once at a time. If
-	// updates are still happening too quickly, we could add some time-based
-	// rate-limiting as well.
+// Return a channel which will be notified when the session receives a new
+// event. Designed to debounce handling for one update at a time. The channel
+// will be closed when the context is cancelled to allow "range" loops over
+// the updates.
+func sessionUpdateHandler(ctx context.Context, sess *Session) chan struct{} {
 	ch := make(chan struct{}, 1)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ch:
-				f(sess)
-			}
-		}
-	}()
-	return tracks.HandlerFunc(func(e tracks.Event) {
+	h := tracks.HandlerFunc(func(e tracks.Event) {
 		if e.Type == "audio" {
 			// if this is a transient event like "audio" we don't need to save
 			return
@@ -179,6 +170,13 @@ func sessionUpdateHandler(ctx context.Context, sess *Session, f func(*Session)) 
 		default:
 		}
 	})
+	go func() {
+		<-ctx.Done()
+		sess.Unlisten(h)
+		close(ch)
+	}()
+	sess.Listen(h)
+	return ch
 }
 
 func (m *Main) Serve(ctx context.Context) {
@@ -197,10 +195,12 @@ func (m *Main) Serve(ctx context.Context) {
 		for _, h := range m.EventHandlers {
 			sess.Listen(h)
 		}
-		sess.Listen(sessionUpdateHandler(ctx, sess, func(s *Session) {
-			log.Printf("saving session")
-			fatal(saveSession(s))
-		}))
+		go func() {
+			for range sessionUpdateHandler(ctx, sess) {
+				log.Printf("saving session")
+				fatal(saveSession(sess))
+			}
+		}()
 		m.sessions[string(sess.ID)] = sess
 		m.mu.Unlock()
 		fatal(os.MkdirAll(fmt.Sprintf("./sessions/%s", sess.ID), 0744))
@@ -219,6 +219,13 @@ func (m *Main) Serve(ctx context.Context) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		updateCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		updateCh := sessionUpdateHandler(updateCtx, sess)
+		select {
+		case updateCh <- struct{}{}: // trigger initial update
+		default:
+		}
 
 		if websocket.IsWebSocketUpgrade(r) {
 			conn, err := upgrader.Upgrade(w, r, nil)
@@ -235,7 +242,9 @@ func (m *Main) Serve(ctx context.Context) {
 				peer.HandleSignals()
 			}
 			if r.URL.RawQuery == "data" {
-				for {
+				for range updateCh {
+					// TODO check periodically for new sessions even if there's not an
+					// update on this session
 					names, err := m.SavedSessions()
 					fatal(err)
 					if err := conn.WriteJSON(View{
@@ -245,7 +254,6 @@ func (m *Main) Serve(ctx context.Context) {
 						log.Println("data:", err)
 						return
 					}
-					<-time.After(1 * time.Second)
 				}
 			}
 			return
