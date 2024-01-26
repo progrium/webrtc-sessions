@@ -25,3 +25,7 @@ func (ee *EventEmitter) Emit(e Event) {
 		return true
 	})
 }
+
+type HandlerFunc func(e Event)
+
+func (f HandlerFunc) HandleEvent(e Event) { f(e) }

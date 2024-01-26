@@ -81,25 +81,32 @@ func fatal(err error) {
 }
 
 func (m *Main) TerminateDaemon(ctx context.Context) error {
-	for id, sess := range m.sessions {
-		b, err := cbor.Marshal(sess)
-		if err != nil {
+	for _, sess := range m.sessions {
+		if err := saveSession(sess); err != nil {
 			return err
 		}
-		filename := fmt.Sprintf("./sessions/%s/session", id)
-		if err := os.WriteFile(filename, b, 0644); err != nil {
-			return err
-		}
-		// for debugging!
-		// b, err = json.Marshal(sess)
-		// if err != nil {
-		// 	return err
-		// }
-		// filename = fmt.Sprintf("./sessions/%s/session.json", id)
-		// if err := os.WriteFile(filename, b, 0644); err != nil {
-		// 	return err
-		// }
 	}
+	return nil
+}
+
+func saveSession(sess *Session) error {
+	b, err := cbor.Marshal(sess)
+	if err != nil {
+		return err
+	}
+	filename := fmt.Sprintf("./sessions/%s/session", sess.ID)
+	if err := os.WriteFile(filename, b, 0644); err != nil {
+		return err
+	}
+	// for debugging!
+	// b, err = json.Marshal(sess)
+	// if err != nil {
+	// 	return err
+	// }
+	// filename = fmt.Sprintf("./sessions/%s/session.json", id)
+	// if err := os.WriteFile(filename, b, 0644); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
@@ -147,6 +154,33 @@ func (m *Main) StartSession(sess *Session) {
 	sess.peer.HandleSignals()
 }
 
+func sessionUpdateHandler(ctx context.Context, sess *Session, f func(*Session)) tracks.Handler {
+	// Debounces updates so that the callback is only called once at a time. If
+	// updates are still happening too quickly, we could add some time-based
+	// rate-limiting as well.
+	ch := make(chan struct{}, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ch:
+				f(sess)
+			}
+		}
+	}()
+	return tracks.HandlerFunc(func(e tracks.Event) {
+		if e.Type == "audio" {
+			// if this is a transient event like "audio" we don't need to save
+			return
+		}
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	})
+}
+
 func (m *Main) Serve(ctx context.Context) {
 	m.sessions = make(map[string]*Session)
 
@@ -163,6 +197,10 @@ func (m *Main) Serve(ctx context.Context) {
 		for _, h := range m.EventHandlers {
 			sess.Listen(h)
 		}
+		sess.Listen(sessionUpdateHandler(ctx, sess, func(s *Session) {
+			log.Printf("saving session")
+			fatal(saveSession(s))
+		}))
 		m.sessions[string(sess.ID)] = sess
 		m.mu.Unlock()
 		fatal(os.MkdirAll(fmt.Sprintf("./sessions/%s", sess.ID), 0744))
