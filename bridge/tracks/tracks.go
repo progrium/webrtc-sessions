@@ -20,6 +20,7 @@ type Span interface {
 	Span(from, to Timestamp) Span
 	Start() Timestamp
 	End() Timestamp
+	Length() time.Duration
 	Audio() beep.Streamer
 	EventTypes() []string
 	Events(typ string) []Event
@@ -44,6 +45,10 @@ type Event struct {
 	EventMeta
 	Data  any
 	track *Track
+}
+
+func (e Event) Track() *Track {
+	return e.track
 }
 
 func (e Event) Span() Span {
@@ -272,6 +277,10 @@ func (t *Track) End() Timestamp {
 	return t.start + Timestamp(dur)
 }
 
+func (t *Track) Length() time.Duration {
+	return time.Duration(t.End() - t.start)
+}
+
 func (t *Track) Track() *Track {
 	return t
 }
@@ -364,6 +373,10 @@ func (s *filteredSpan) Span(from Timestamp, to Timestamp) Span {
 
 func (s *filteredSpan) Start() Timestamp {
 	return s.start
+}
+
+func (s *filteredSpan) Length() time.Duration {
+	return time.Duration(s.end - s.start)
 }
 
 func (s *filteredSpan) Track() *Track {

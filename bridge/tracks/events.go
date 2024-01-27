@@ -20,7 +20,7 @@ func (ee *EventEmitter) Unlisten(n Handler) {
 func (ee *EventEmitter) Emit(e Event) {
 	ee.m.Range(func(k, v any) bool {
 		if h, ok := v.(Handler); ok {
-			h.HandleEvent(e)
+			go h.HandleEvent(e)
 		}
 		return true
 	})
