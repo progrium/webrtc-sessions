@@ -94,25 +94,32 @@ func fatal(err error) {
 }
 
 func (m *Main) TerminateDaemon(ctx context.Context) error {
-	for id, sess := range m.sessions {
-		b, err := cbor.Marshal(sess)
-		if err != nil {
+	for _, sess := range m.sessions {
+		if err := saveSession(sess); err != nil {
 			return err
 		}
-		filename := fmt.Sprintf("./sessions/%s/session", id)
-		if err := os.WriteFile(filename, b, 0644); err != nil {
-			return err
-		}
-		// for debugging!
-		// b, err = json.Marshal(sess)
-		// if err != nil {
-		// 	return err
-		// }
-		// filename = fmt.Sprintf("./sessions/%s/session.json", id)
-		// if err := os.WriteFile(filename, b, 0644); err != nil {
-		// 	return err
-		// }
 	}
+	return nil
+}
+
+func saveSession(sess *Session) error {
+	b, err := cbor.Marshal(sess)
+	if err != nil {
+		return err
+	}
+	filename := fmt.Sprintf("./sessions/%s/session", sess.ID)
+	if err := os.WriteFile(filename, b, 0644); err != nil {
+		return err
+	}
+	// for debugging!
+	// b, err = json.Marshal(sess)
+	// if err != nil {
+	// 	return err
+	// }
+	// filename = fmt.Sprintf("./sessions/%s/session.json", id)
+	// if err := os.WriteFile(filename, b, 0644); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
@@ -159,6 +166,31 @@ func (m *Main) StartSession(sess *Session) {
 	sess.peer.HandleSignals()
 }
 
+// Return a channel which will be notified when the session receives a new
+// event. Designed to debounce handling for one update at a time. The channel
+// will be closed when the context is cancelled to allow "range" loops over
+// the updates.
+func sessionUpdateHandler(ctx context.Context, sess *Session) chan struct{} {
+	ch := make(chan struct{}, 1)
+	h := tracks.HandlerFunc(func(e tracks.Event) {
+		if e.Type == "audio" {
+			// if this is a transient event like "audio" we don't need to save
+			return
+		}
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	})
+	go func() {
+		<-ctx.Done()
+		sess.Unlisten(h)
+		close(ch)
+	}()
+	sess.Listen(h)
+	return ch
+}
+
 func (m *Main) Serve(ctx context.Context) {
 	m.sessions = make(map[string]*Session)
 
@@ -175,6 +207,12 @@ func (m *Main) Serve(ctx context.Context) {
 		for _, h := range m.EventHandlers {
 			sess.Listen(h)
 		}
+		go func() {
+			for range sessionUpdateHandler(ctx, sess) {
+				log.Printf("saving session")
+				fatal(saveSession(sess))
+			}
+		}()
 		m.sessions[string(sess.ID)] = sess
 		m.mu.Unlock()
 		fatal(os.MkdirAll(fmt.Sprintf("./sessions/%s", sess.ID), 0744))
@@ -193,6 +231,13 @@ func (m *Main) Serve(ctx context.Context) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		updateCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		updateCh := sessionUpdateHandler(updateCtx, sess)
+		select {
+		case updateCh <- struct{}{}: // trigger initial update
+		default:
+		}
 
 		if websocket.IsWebSocketUpgrade(r) {
 			conn, err := upgrader.Upgrade(w, r, nil)
@@ -209,7 +254,9 @@ func (m *Main) Serve(ctx context.Context) {
 				peer.HandleSignals()
 			}
 			if r.URL.RawQuery == "data" {
-				for {
+				for range updateCh {
+					// TODO check periodically for new sessions even if there's not an
+					// update on this session
 					names, err := m.SavedSessions()
 					fatal(err)
 					data, err := cbor.Marshal(View{
@@ -221,7 +268,6 @@ func (m *Main) Serve(ctx context.Context) {
 						log.Println("data:", err)
 						return
 					}
-					<-time.After(1 * time.Second)
 				}
 			}
 			return
