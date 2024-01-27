@@ -6,6 +6,8 @@ toolchain go1.21.1
 
 require (
 	github.com/fxamacker/cbor/v2 v2.5.0
+	github.com/go-audio/audio v1.0.0
+	github.com/go-audio/wav v1.1.0
 	github.com/gopxl/beep v1.3.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/pion/rtcp v1.2.13
@@ -22,6 +24,7 @@ require (
 require (
 	github.com/ebitengine/oto/v3 v3.1.0 // indirect
 	github.com/ebitengine/purego v0.5.0 // indirect
+	github.com/go-audio/riff v1.0.0 // indirect
 )
 
 require (

@@ -18,7 +18,7 @@ func fatal(err error) {
 
 func main() {
 	url := "http://localhost:8090/v1/transcribe"
-	audio, err := os.ReadFile("test.ogg")
+	audio, err := os.ReadFile("test.ogg") // also works with mp3s and wavs
 	fatal(err)
 	request := &TranscriptionRequest{
 		Task:      "transcribe",

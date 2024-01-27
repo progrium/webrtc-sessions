@@ -3,26 +3,17 @@
 export var Session = {
   view: ({attrs}) => {
     return m("div", {"class":"session"}, 
-      m("div", {"class":"entry summary"}, 
-        m("div", {"class":"left"},
-          [
-            m("div", {"class":"line","style":{"background-color":attrs.lineColor}}, 
-              m("div", {"class":"right"},
-                [
-                  m("div", {"class":"date"}, attrs.date),
-                  m("div", {"class":"headline"}, attrs.headline),
-                  m("div", {"class":"summary"}, attrs.summary),
-                  m("div", {"class":"participants"}, 
-                    `Participants: ${(attrs.participants||[]).join(', ')}`
-                  ),
-                  m("div", {"class":"related"}, attrs.related),
-                  m("div", {"class":"stats"}, attrs.statistics)
-                ]
-              )
-            ),
-            ...(attrs.entries||[]).map(entry => m(Entry, entry))
-          ]
-        )
+      m("div", {"class":"mb-4"},
+        [
+          m("div", {"class":"date"}, attrs.date),
+          // m("div", {"class":"summary"}, attrs.summary),
+          m("div", {"class":"participants"}, 
+            `Participants: ${(attrs.participants||[]).join(', ')}`
+          ),
+        ]
+      ),
+      m("div", {"class":""}, 
+        (attrs.entries||[]).map(entry => m(Entry, entry))
       )
     )
   }

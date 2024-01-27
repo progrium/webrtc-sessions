@@ -19,6 +19,7 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"github.com/progrium/webrtc-sessions/bridge/tracks"
+	"github.com/progrium/webrtc-sessions/bridge/transcribe"
 	"github.com/progrium/webrtc-sessions/bridge/ui"
 	"github.com/progrium/webrtc-sessions/bridge/vad"
 	"github.com/progrium/webrtc-sessions/bridge/webrtc/js"
@@ -44,13 +45,25 @@ func main() {
 			SampleRate:   format.SampleRate.N(time.Second),
 			SampleWindow: 24 * time.Second,
 		}),
-		eventLogger{},
+		transcribe.Agent{
+			Endpoint: "http://localhost:8090/v1/transcribe",
+		},
+		eventLogger{
+			exclude: []string{"audio"},
+		},
 	)
 }
 
-type eventLogger struct{}
+type eventLogger struct {
+	exclude []string
+}
 
-func (eventLogger) HandleEvent(e tracks.Event) {
+func (l eventLogger) HandleEvent(e tracks.Event) {
+	for _, t := range l.exclude {
+		if e.Type == t {
+			return
+		}
+	}
 	log.Printf("event: %s %s %s", e.Type, e.ID, time.Duration(e.Start))
 }
 
@@ -141,7 +154,6 @@ func (m *Main) StartSession(sess *Session) {
 			chunk := beep.Take(chunkSize, s)
 			sessTrack.AddAudio(chunk)
 			fatal(chunk.Err())
-			log.Printf("track %s: %v", sessTrack.ID, time.Duration(sessTrack.End()))
 		}
 	})
 	sess.peer.HandleSignals()
@@ -200,10 +212,12 @@ func (m *Main) Serve(ctx context.Context) {
 				for {
 					names, err := m.SavedSessions()
 					fatal(err)
-					if err := conn.WriteJSON(View{
+					data, err := cbor.Marshal(View{
 						Sessions: names,
 						Session:  sess,
-					}); err != nil {
+					})
+					fatal(err)
+					if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 						log.Println("data:", err)
 						return
 					}

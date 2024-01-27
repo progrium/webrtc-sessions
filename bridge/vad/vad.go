@@ -11,7 +11,7 @@ import (
 	"github.com/rs/xid"
 )
 
-type Annotator struct {
+type Agent struct {
 	sampleRateMs  int
 	maxWindowSize int
 
@@ -26,13 +26,14 @@ type Annotator struct {
 }
 
 type Window struct {
-	vad *Annotator
+	vad *Agent
 
 	pcm     []float32
 	chunkID string
 
-	isSpeaking bool
-	pendingMs  int
+	isSpeaking      bool
+	pendingMs       int
+	startedSpeaking tracks.Timestamp
 }
 
 type Config struct {
@@ -51,10 +52,10 @@ type Config struct {
 	// pcmWindowSize   = pcmSampleRateMs * sampleRateMs
 }
 
-func New(config Config) *Annotator {
+func New(config Config) *Agent {
 	sampleRateMs := config.SampleRate / 1000
 	pcmWindowSize := int(config.SampleWindow.Seconds() * float64(config.SampleRate))
-	return &Annotator{
+	return &Agent{
 		sampleRateMs:  sampleRateMs,
 		maxWindowSize: pcmWindowSize,
 		vadGapSamples: sampleRateMs * 700,
@@ -68,7 +69,7 @@ func New(config Config) *Annotator {
 	}
 }
 
-func (a *Annotator) HandleEvent(annot tracks.Event) {
+func (a *Agent) HandleEvent(annot tracks.Event) {
 	if annot.Type != "audio" {
 		return
 	}
@@ -77,14 +78,14 @@ func (a *Annotator) HandleEvent(annot tracks.Event) {
 		log.Println("vad:", err)
 		return
 	}
-	win := a.Window(string(annot.Span().Track().ID))
+	win := a.Window(string(annot.Track().ID))
 	start, ok := win.Push(pcm, annot.End)
-	if ok {
-		annot.Span().Span(start, annot.End).RecordEvent("activity", nil)
+	if ok && start != 0 {
+		annot.Track().Span(start, annot.End).RecordEvent("activity", nil)
 	}
 }
 
-func (a *Annotator) Window(name string) *Window {
+func (a *Agent) Window(name string) *Window {
 	a.mu.Lock()
 	w, ok := a.windows[name]
 	if !ok {
@@ -100,6 +101,7 @@ func (a *Annotator) Window(name string) *Window {
 	return w
 }
 
+// pushes audio and returns edge==true on activity changes,
 func (w *Window) Push(pcm []float32, end tracks.Timestamp) (start tracks.Timestamp, ok bool) {
 	if w.chunkID == "" {
 		w.chunkID = xid.New().String()
@@ -133,37 +135,33 @@ func (w *Window) Push(pcm []float32, end tracks.Timestamp) (start tracks.Timesta
 	}
 
 	if len(w.pcm) != 0 && !isSpeaking && wasSpeaking {
-		log.Printf("FINISHED SPEAKING")
+		log.Println("FINISHED SPEAKING", w.chunkID)
 		flushFinal = true
 	}
 
 	if flushFinal {
-		// cap := &CapturedAudio{
-		// 	ID:           a.windowID,
-		// 	Final:        true,
-		// 	PCM:          append([]float32(nil), a.pcmWindow...),
-		// 	EndTimestamp: uint64(endTimestamp),
-		// 	// HACK surely there's a better way to calculate this?
-		// 	StartTimestamp: uint64(endTimestamp) - uint64(len(a.pcmWindow)/a.sampleRateMs),
-		// }
+		started := w.startedSpeaking
 		w.chunkID = ""
 		w.isSpeaking = false
 		w.pcm = w.pcm[:0]
 		w.pendingMs = 0
+		w.startedSpeaking = 0
 
 		_ = silence
 		_ = energy
 		// not speaking do nothing
 		// Logger.Infof("NOT SPEAKING energy=%#v (energyThreshold=%#v) silence=%#v (silenceThreshold=%#v) endTimestamp=%d ", energy, e.energyThresh, silence, e.silenceThresh, endTimestamp)
-		return end - tracks.Timestamp(len(w.pcm)/w.vad.sampleRateMs), true
+		return started, true
 	}
 
 	if isSpeaking && wasSpeaking {
-		//log.Printf("STILL SPEAKING")
+		//log.Println("STILL SPEAKING")
 	}
 
 	if isSpeaking && !wasSpeaking {
-		log.Printf("STARTED SPEAKING")
+		// add a little extra 500ms at the beginning
+		w.startedSpeaking = end - tracks.Timestamp((len(pcm)/w.vad.sampleRateMs+500)*1000000)
+		log.Println("STARTED SPEAKING", w.chunkID)
 	}
 
 	flushDraft := false
@@ -173,16 +171,8 @@ func (w *Window) Push(pcm []float32, end tracks.Timestamp) (start tracks.Timesta
 	}
 
 	if flushDraft {
-		// cap := &CapturedAudio{
-		// 	ID:           a.windowID,
-		// 	Final:        false,
-		// 	PCM:          append([]float32(nil), a.pcmWindow...),
-		// 	EndTimestamp: uint64(endTimestamp),
-		// 	// HACK surely there's a better way to calculate this?
-		// 	StartTimestamp: uint64(endTimestamp) - uint64(len(a.pcmWindow)/a.sampleRateMs),
-		// }
 		w.pendingMs = 0
-		return end - tracks.Timestamp(len(w.pcm)/w.vad.sampleRateMs), false
+		return w.startedSpeaking, false
 	}
 
 	return 0, false
