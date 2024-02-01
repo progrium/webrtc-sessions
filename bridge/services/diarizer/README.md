@@ -1,4 +1,5 @@
-# Work in progress
+# diarizer
+Memory usage processing the audio clip peaked around 1.7G. Image size is 9G
 
 ### Build container
 ```
